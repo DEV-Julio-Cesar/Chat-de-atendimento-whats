@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Histórico de Mensagens</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; padding: 20px; }
+        .message-bubble { margin-bottom: 8px; max-width: 70%; padding: 8px 12px; border-radius: 15px; }
+        .sender-me { background-color: #d1e7ff; align-self: flex-end; }
+        .sender-other { background-color: #f0f0f0; align-self: flex-start; }
+    </style>
+</head>
+<body class="bg-gray-50 antialiased">
+
+    <div class="max-w-4xl mx-auto bg-white p-6 rounded-xl shadow-lg">
+        <h1 class="text-2xl font-bold mb-6 text-teal-600">Pesquisa de Histórico</h1>
+        
+        <form id="search-form" class="bg-gray-100 p-4 rounded-lg mb-6 grid grid-cols-3 gap-4">
+            <div>
+                <label for="search-number" class="block text-sm font-medium text-gray-700">Número/Chat ID</label>
+                <input type="text" id="search-number" class="w-full mt-1 p-2 border border-gray-300 rounded-lg" placeholder="Ex: 5547..." required>
+            </div>
+            
+            <div>
+                <label for="date-start" class="block text-sm font-medium text-gray-700">De (Data/Hora)</label>
+                <input type="datetime-local" id="date-start" class="w-full mt-1 p-2 border border-gray-300 rounded-lg" required>
+            </div>
+            
+            <div>
+                <label for="date-end" class="block text-sm font-medium text-gray-700">Até (Data/Hora)</label>
+                <input type="datetime-local" id="date-end" class="w-full mt-1 p-2 border border-gray-300 rounded-lg" required>
+            </div>
+
+            <div class="col-span-3 flex justify-end mt-2">
+                 <button type="submit" class="bg-teal-600 text-white py-2 px-6 rounded-lg hover:bg-teal-700 font-medium">
+                    Pesquisar Histórico
+                </button>
+            </div>
+        </form>
+
+        <h2 class="text-xl font-semibold mb-3 text-gray-800">Resultados (<span id="result-count">0</span>)</h2>
+        
+        <div id="results-container" class="space-y-4 max-h-96 overflow-y-auto p-2 border border-gray-200 rounded-lg bg-white flex flex-col">
+            <p id="no-results" class="text-center text-gray-500">Use os filtros acima e clique em 'Pesquisar Histórico'.</p>
+        </div>
+    </div>
+
+    <script>
+        const searchForm = document.getElementById('search-form');
+        const numberInput = document.getElementById('search-number');
+        const dateStartInput = document.getElementById('date-start');
+        const dateEndInput = document.getElementById('date-end');
+        const resultsContainer = document.getElementById('results-container');
+        const resultCountSpan = document.getElementById('result-count');
+        const noResults = document.getElementById('no-results');
+
+        searchForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const number = numberInput.value.trim();
+            const dateStart = dateStartInput.value;
+            const dateEnd = dateEndInput.value;
+
+            if (!number || !dateStart || !dateEnd) {
+                alert("Por favor, preencha todos os campos de filtro.");
+                return;
+            }
+
+            resultsContainer.innerHTML = '<p class="text-center text-teal-600">Buscando...</p>';
+
+            // 🚨 CHAMADA IPC PARA CONSULTA (O Main Process consultaria o DB aqui)
+            const response = await window.historyAPI.searchHistory({ number, dateStart, dateEnd }); 
+
+            resultsContainer.innerHTML = '';
+            
+            if (response.sucesso) {
+                const results = response.history;
+                resultCountSpan.textContent = results.length;
+                noResults.classList.add('hidden');
+
+                if (results.length === 0) {
+                    resultsContainer.innerHTML = '<p class="text-center text-gray-500">Nenhuma mensagem encontrada para o período/número.</p>';
+                    return;
+                }
+
+                results.forEach(msg => {
+                    const isMe = msg.sender === 'Eu';
+                    const bubbleClass = isMe ? 'sender-me bg-teal-100 self-end' : 'sender-other bg-gray-100 self-start';
+                    
+                    const msgEl = document.createElement('div');
+                    msgEl.className = `message-bubble ${bubbleClass} flex flex-col`;
+                    msgEl.innerHTML = `
+                        <span class="text-xs font-semibold ${isMe ? 'text-teal-800' : 'text-gray-700'}">${msg.sender}</span>
+                        <span class="text-sm">${msg.texto}</span>
+                        <span class="text-xs text-gray-500 mt-1">${new Date(msg.timestamp).toLocaleString()}</span>
+                    `;
+                    resultsContainer.appendChild(msgEl);
+                });
+                
+            } else {
+                 resultsContainer.innerHTML = `<p class="text-center text-red-500">Erro na pesquisa: ${response.erro}</p>`;
+            }
+        });
+    </script>
+</body>
+</html>

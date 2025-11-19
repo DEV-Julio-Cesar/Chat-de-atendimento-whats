@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conectar WhatsApp</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gradient-to-br from-teal-50 to-blue-50 h-screen flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
+        <div class="text-center mb-6">
+            <h1 class="text-2xl font-bold text-gray-800 mb-2">Conectar WhatsApp</h1>
+            <p id="client-id-display" class="text-sm text-gray-500"></p>
+        </div>
+
+        <div id="qr-container" class="text-center">
+            <div id="loading" class="mb-4">
+                <div class="inline-block animate-spin rounded-full h-12 w-12 border-4 border-teal-500 border-t-transparent"></div>
+                <p class="text-gray-600 mt-4">Gerando QR Code...</p>
+            </div>
+
+            <img id="qr-image" class="hidden mx-auto border-4 border-gray-200 rounded-xl shadow-lg" alt="QR Code">
+            
+            <p id="qr-instructions" class="hidden text-sm text-gray-600 mt-4">
+                Escaneie este código com o WhatsApp do seu celular
+            </p>
+
+            <div id="success-message" class="hidden">
+                <div class="bg-green-100 text-green-800 p-4 rounded-lg">
+                    <svg class="w-12 h-12 mx-auto mb-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                    </svg>
+                    <p class="font-bold">Conectado com sucesso!</p>
+                    <p class="text-sm mt-2">Número: <span id="connected-number"></span></p>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-6 space-y-3">
+            <button id="btn-start-connection" class="w-full bg-teal-500 hover:bg-teal-600 text-white font-semibold py-3 rounded-lg transition">
+                Iniciar Conexão
+            </button>
+            <button id="btn-close" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-3 rounded-lg transition">
+                Fechar
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let currentClientId = null;
+
+        // Recebe o clientId do Main Process
+        window.qrAPI.onSetClientId((clientId) => {
+            currentClientId = clientId;
+            document.getElementById('client-id-display').textContent = `ID: ${clientId}`;
+        });
+
+        // Botão Iniciar Conexão
+        document.getElementById('btn-start-connection').addEventListener('click', async () => {
+            if (!currentClientId) return;
+            
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('btn-start-connection').disabled = true;
+            
+            const result = await window.qrAPI.startConnection(currentClientId);
+            console.log('Conexão iniciada:', result);
+        });
+
+        // Recebe o QR Code
+        window.qrAPI.onQRCode((qrDataURL) => {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('qr-image').src = qrDataURL;
+            document.getElementById('qr-image').classList.remove('hidden');
+            document.getElementById('qr-instructions').classList.remove('hidden');
+        });
+
+        // Conexão estabelecida
+        window.qrAPI.onReady((clientId) => {
+            document.getElementById('qr-image').classList.add('hidden');
+            document.getElementById('qr-instructions').classList.add('hidden');
+            document.getElementById('success-message').classList.remove('hidden');
+            document.getElementById('connected-number').textContent = clientId;
+        });
+
+        // Fechar janela
+        document.getElementById('btn-close').addEventListener('click', () => {
+            window.close();
+        });
+    </script>
+</body>
+</html>
