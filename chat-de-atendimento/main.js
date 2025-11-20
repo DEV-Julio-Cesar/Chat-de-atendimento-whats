@@ -38,8 +38,8 @@ let loginWindow = null;
 let historyWindow = null;
 
 // Clientes WhatsApp (múltiplas conexões)
-let whatsappClients = {};
-let qrWindows = {};
+const whatsappClients = new Map();
+const qrWindows = new Map();
 
 // Configurações da API Cloud (WhatsApp Business)
 let WHATSAPP_TOKEN = '';
@@ -284,8 +284,8 @@ function createCadastroWindow() {
  * Cria janela de QR Code para cliente específico
  */
 function createQRWindow(clientId) {
-    if (qrWindows[clientId]) {
-        qrWindows[clientId].focus();
+    if (qrWindows.has(clientId)) {
+        qrWindows.get(clientId).focus();
         return;
     }
     
@@ -302,14 +302,14 @@ function createQRWindow(clientId) {
     });
     
     qrWindow.loadFile('src/interfaces/qr-window.html');
-    qrWindows[clientId] = qrWindow;
+    qrWindows.set(clientId, qrWindow);
     
     qrWindow.webContents.once('did-finish-load', () => {
         qrWindow.webContents.send('set-client-id', clientId);
     });
     
     qrWindow.on('closed', () => {
-        delete qrWindows[clientId];
+        qrWindows.delete(clientId);
     });
 }
 
@@ -684,39 +684,6 @@ function configurarManipuladoresIPC() {
         return await metricas.resetarMetricas();
     });
 
-    // Atualizar métricas ao enviar/receber
-    ipcMain.handle('send-whatsapp-message', async (_event, { clientId, chatId, message }) => {
-        try {
-            const client = whatsappClients.get(clientId);
-            if (!client) {
-                return { success: false, message: 'Cliente não conectado' };
-            }
-
-            await client.sendMessage(chatId, message);
-            
-            // Registra métrica
-            await metricas.registrarMensagemEnviada();
-            
-            await gerenciadorMensagens.salvarMensagem(clientId, chatId, {
-                id: { id: Date.now() },
-                timestamp: Date.now(),
-                from: 'me',
-                to: chatId,
-                body: message,
-                type: 'chat',
-                fromMe: true,
-                hasMedia: false
-            });
-
-            logger.sucesso(`[${clientId}] Mensagem enviada para ${chatId}`);
-            return { success: true };
-
-        } catch (erro) {
-            logger.erro('[Enviar Mensagem] Erro:', erro.message);
-            return { success: false, message: erro.message };
-        }
-    });
-
     // APIs de usuários
     ipcMain.handle('list-users', async () => {
         try {
@@ -760,26 +727,60 @@ function configurarManipuladoresIPC() {
 
     // --- ENVIO DE MENSAGENS ---
     
-    ipcMain.handle('send-whatsapp-message', async (event, { numero, mensagem, clientId }) => {
+    ipcMain.handle('send-whatsapp-message', async (event, { numero, mensagem, clientId, chatId, message }) => {
         try {
-            // Se tem clientId, usa cliente específico
-            if (clientId && whatsappClients[clientId]) {
-                const client = whatsappClients[clientId];
-                if (client.info) {
-                    await client.sendMessage(`${numero}@c.us`, mensagem);
-                    return { sucesso: true, dados: { status: 'enviado', clientId } };
+            // Formato novo (chat.html): { clientId, chatId, message }
+            if (clientId && chatId && message) {
+                const client = whatsappClients.get(clientId);
+                if (!client) {
+                    return { success: false, message: 'Cliente não conectado' };
                 }
+
+                await client.sendMessage(chatId, message);
+                
+                // Registra métrica
+                await metricas.registrarMensagemEnviada();
+                
+                await gerenciadorMensagens.salvarMensagem(clientId, chatId, {
+                    id: { id: Date.now() },
+                    timestamp: Date.now(),
+                    from: 'me',
+                    to: chatId,
+                    body: message,
+                    type: 'chat',
+                    fromMe: true,
+                    hasMedia: false
+                });
+
+                logger.sucesso(`[${clientId}] Mensagem enviada para ${chatId}`);
+                return { success: true };
             }
             
-            // Caso contrário, tenta API Cloud
-            if (WHATSAPP_TOKEN && !WHATSAPP_TOKEN.startsWith('TOKEN_DE_TESTE_')) {
-                const resultado = await enviarMensagemWhatsApp(numero, mensagem);
-                return { sucesso: true, dados: resultado };
+            // Formato antigo (index.html): { numero, mensagem, clientId }
+            if (numero && mensagem) {
+                // Se tem clientId, usa cliente específico
+                if (clientId && whatsappClients.has(clientId)) {
+                    const client = whatsappClients.get(clientId);
+                    if (client.info) {
+                        await client.sendMessage(`${numero}@c.us`, mensagem);
+                        return { sucesso: true, dados: { status: 'enviado', clientId } };
+                    }
+                }
+                
+                // Caso contrário, tenta API Cloud
+                if (WHATSAPP_TOKEN && !WHATSAPP_TOKEN.startsWith('TOKEN_DE_TESTE_')) {
+                    const resultado = await enviarMensagemWhatsApp(numero, mensagem);
+                    return { sucesso: true, dados: resultado };
+                }
+                
+                return { sucesso: false, erro: 'Nenhum cliente disponível' };
             }
             
-            return { sucesso: false, erro: 'Nenhum cliente disponível' };
+            return { success: false, message: 'Parâmetros inválidos' };
+            
         } catch (erro) {
-            return { sucesso: false, erro: erro.message };
+            logger.erro('[Enviar Mensagem] Erro:', erro.message);
+            return { success: false, sucesso: false, message: erro.message, erro: erro.message };
         }
     });
     
@@ -822,8 +823,47 @@ function configurarManipuladoresIPC() {
 
     // --- CHATS E HISTÓRICO ---
     
+    ipcMain.handle('list-whatsapp-chats', async (_event, clientId) => {
+        try {
+            const client = whatsappClients.get(clientId);
+            if (!client) {
+                return { success: false, message: 'Cliente não conectado', chats: [] };
+            }
+
+            const chats = await client.getChats();
+            
+            const chatList = chats.map(chat => ({
+                id: chat.id._serialized,
+                name: chat.name || chat.id.user,
+                isGroup: chat.isGroup,
+                unreadCount: chat.unreadCount,
+                timestamp: chat.timestamp || 0
+            }));
+
+            // Ordena por timestamp (mais recente primeiro)
+            chatList.sort((a, b) => b.timestamp - a.timestamp);
+
+            return { success: true, chats: chatList };
+
+        } catch (erro) {
+            logger.erro('[Listar Chats] Erro:', erro.message);
+            return { success: false, chats: [], message: erro.message };
+        }
+    });
+
+    // Carregar histórico de mensagens
+    ipcMain.handle('load-chat-history', async (_event, { clientId, chatId }) => {
+        try {
+            const result = await gerenciadorMensagens.carregarHistorico(clientId, chatId);
+            return result;
+        } catch (erro) {
+            logger.erro('[Carregar Histórico] Erro:', erro.message);
+            return { success: false, mensagens: [], message: erro.message };
+        }
+    });
+    
     ipcMain.handle('fetch-whatsapp-chats', async (event, clientId) => {
-        const client = clientId ? whatsappClients[clientId] : Object.values(whatsappClients)[0];
+        const client = clientId ? whatsappClients.get(clientId) : Array.from(whatsappClients.values())[0];
         
         if (!client || !client.info) {
             return { sucesso: false, erro: 'Cliente não conectado' };
@@ -867,7 +907,7 @@ function configurarManipuladoresIPC() {
     });
     
     ipcMain.handle('fetch-chat-history', async (event, { number, clientId }) => {
-        const client = clientId ? whatsappClients[clientId] : Object.values(whatsappClients)[0];
+        const client = clientId ? whatsappClients.get(clientId) : Array.from(whatsappClients.values())[0];
         
         if (!client || !client.info) {
             return { sucesso: false, erro: 'Cliente não conectado' };
@@ -962,6 +1002,56 @@ function configurarManipuladoresIPC() {
     // Tema
     ipcMain.handle('theme:get', async () => ({ success: true, theme: await tema.getTheme() }));
     ipcMain.handle('theme:set', async (_e, themeName) => tema.setTheme(themeName));
+
+    // Abrir nova janela QR
+    ipcMain.handle('open-new-qr-window', async () => {
+        const clientId = `client_${Date.now()}`;
+        createQRWindow(clientId);
+        await inicializarClienteWhatsApp(clientId);
+        return { success: true, clientId };
+    });
+
+    // Listar clientes conectados
+    ipcMain.handle('list-connected-clients', async () => {
+        return Array.from(whatsappClients.keys());
+    });
+
+    // Desconectar cliente
+    ipcMain.handle('disconnect-client', async (_event, clientId) => {
+        try {
+            const client = whatsappClients.get(clientId);
+            if (client) {
+                await client.destroy();
+                whatsappClients.delete(clientId);
+                logger.info(`[${clientId}] Cliente desconectado`);
+            }
+            return { success: true };
+        } catch (erro) {
+            logger.erro('[Desconectar] Erro:', erro.message);
+            return { success: false, message: erro.message };
+        }
+    });
+
+    // Chatbot
+    ipcMain.handle('get-chatbot-rules', async () => {
+        try {
+            const rules = await chatbot.carregarRegras();
+            return { success: true, rules };
+        } catch (erro) {
+            logger.erro('[Chatbot] Erro ao carregar regras:', erro.message);
+            return { success: false, message: erro.message };
+        }
+    });
+
+    ipcMain.handle('save-chatbot-rules', async (_event, rules) => {
+        try {
+            const result = await chatbot.salvarRegras(rules);
+            return result;
+        } catch (erro) {
+            logger.erro('[Chatbot] Erro ao salvar regras:', erro.message);
+            return { success: false, message: erro.message };
+        }
+    });
 }
 
 // =========================================================================
@@ -970,6 +1060,7 @@ function configurarManipuladoresIPC() {
 
 app.whenReady().then(async () => {
     configurarManipuladoresIPC();
+    criarMenuPrincipal();
     
     // Inicia com tela de login
     createLoginWindow();
@@ -1021,9 +1112,9 @@ app.on('before-quit', async () => {
     logger.info('=== Encerrando Aplicativo ===');
     
     // Fecha todos os clientes WhatsApp
-    for (const clientId in whatsappClients) {
+    for (const [clientId, client] of whatsappClients.entries()) {
         try {
-            await whatsappClients[clientId].destroy();
+            await client.destroy();
         } catch (erro) {
             logger.erro(`Erro ao fechar ${clientId}:`, erro.message);
         }
