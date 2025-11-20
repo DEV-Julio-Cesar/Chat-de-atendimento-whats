@@ -2,88 +2,106 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cadastro de Novo Usuário</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>body { font-family: 'Inter', sans-serif; }</style>
+    <title>Cadastro de Usuário</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,.3);
+            width: 90%;
+            max-width: 450px;
+        }
+        h1 { text-align: center; margin-bottom: 20px; color: #333; }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; margin-bottom: 6px; font-weight: 600; color: #555; }
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover { opacity: 0.9; }
+        .message {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+        .message.error { background: #fee; color: #c33; }
+        .message.success { background: #efe; color: #3c3; }
+    </style>
 </head>
-<body class="bg-gray-100 antialiased flex items-center justify-center h-screen">
-    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm">
-        <h1 class="text-2xl font-bold mb-6 text-teal-600 text-center">Cadastro de Novo Usuário</h1>
-        <form id="cadastro-form">
-            <div class="mb-4">
-                <label for="nome" class="block text-gray-700 font-semibold mb-2">Nome</label>
-                <input type="text" id="nome" placeholder="Seu nome completo" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" required>
+<body>
+    <div class="container">
+        <h1>📝 Novo Usuário</h1>
+        <div id="msg"></div>
+        <form id="form">
+            <div class="form-group">
+                <label>Usuário*</label>
+                <input id="username" required>
             </div>
-            <div class="mb-4">
-                <label for="usuario" class="block text-gray-700 font-semibold mb-2">Usuário</label>
-                <input type="text" id="usuario" placeholder="Nome de usuário" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" required>
+            <div class="form-group">
+                <label>E-mail</label>
+                <input id="email" type="email">
             </div>
-            <div class="mb-4">
-                <label for="nascimento" class="block text-gray-700 font-semibold mb-2">Data de Nascimento</label>
-                <input type="date" id="nascimento" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" required>
+            <div class="form-group">
+                <label>Senha*</label>
+                <input id="password" type="password" required>
             </div>
-            <div class="mb-4">
-                <label for="email" class="block text-gray-700 font-semibold mb-2">E-mail</label>
-                <input type="email" id="email" placeholder="Seu e-mail" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" required>
+            <div class="form-group">
+                <label>Perfil*</label>
+                <select id="role" required>
+                    <option value="atendente">Atendente</option>
+                    <option value="supervisor">Supervisor</option>
+                    <option value="admin">Administrador</option>
+                </select>
             </div>
-            <div class="mb-6">
-                <label for="senha" class="block text-gray-700 font-semibold mb-2">Senha</label>
-                <input type="password" id="senha" placeholder="Crie uma senha" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" required>
-            </div>
-            <button type="submit" class="w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 transition duration-150 font-bold mb-2">Cadastrar</button>
-            <a href="login.html" class="block w-full text-center py-2 rounded-lg bg-gray-200 text-gray-700 font-semibold hover:bg-gray-300 transition duration-150">Voltar</a>
+            <button type="submit">Cadastrar</button>
         </form>
-        <p id="cadastro-msg" class="text-green-600 text-sm mt-4 hidden">Cadastro realizado com sucesso!</p>
-    </div>    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const form = document.getElementById('cadastro-form');
-            const msgElement = document.getElementById('cadastro-msg');
-            
-            form.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                
-                // Coleta os dados do formulário
-                const newUser = {
-                    usuario: document.getElementById('usuario').value,
-                    nome: document.getElementById('nome').value,
-                    nascimento: document.getElementById('nascimento').value,
-                    email: document.getElementById('email').value,
-                    senha: document.getElementById('senha').value
-                };
-                
-                try {
-                    if (window.cadastroAPI && typeof window.cadastroAPI.registerUser === 'function') {
-                        const result = await window.cadastroAPI.registerUser(newUser);
-                        
-                        if (result.success) {
-                            msgElement.textContent = result.message;
-                            msgElement.classList.remove('hidden');
-                            msgElement.classList.remove('text-red-600');
-                            msgElement.classList.add('text-green-600');
-                            
-                            // Fechar janela após sucesso
-                            setTimeout(() => {
-                                window.close();
-                            }, 1500);
-                        } else {
-                            msgElement.textContent = result.message;
-                            msgElement.classList.remove('hidden');
-                            msgElement.classList.remove('text-green-600');
-                            msgElement.classList.add('text-red-600');
-                        }
-                    } else {
-                        msgElement.textContent = 'Erro: API de cadastro não disponível.';
-                        msgElement.classList.remove('hidden');
-                        msgElement.classList.add('text-red-600');
-                    }
-                } catch (error) {
-                    msgElement.textContent = 'Erro de comunicação. Tente novamente.';
-                    msgElement.classList.remove('hidden');
-                    msgElement.classList.add('text-red-600');
-                    console.error('Erro ao cadastrar usuário:', error);
-                }
-            });
+    </div>
+    <script>
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const dados = {
+                username: username.value.trim(),
+                email: email.value.trim() || null,
+                password: password.value,
+                role: role.value
+            };
+            const res = await window.cadastroAPI.cadastrar(dados);
+            if (res.success) {
+                msg.innerHTML = '<div class="message success">✅ Usuário cadastrado!</div>';
+                form.reset();
+            } else {
+                msg.innerHTML = `<div class="message error">❌ ${res.message}</div>`;
+            }
         });
     </script>
 </body>

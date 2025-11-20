@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Configurar Chatbot</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: Arial, sans-serif; background:#f5f5f5; }
+    
+    header { background:#1f2937; color:#fff; padding:20px 30px; }
+    header h1 { font-size:24px; }
+    
+    .container { padding:30px; max-width:1000px; margin:0 auto; }
+    
+    .section { background:#fff; padding:24px; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.1); margin-bottom:20px; }
+    .section-title { font-size:18px; font-weight:600; margin-bottom:16px; color:#111827; }
+    
+    .toggle { display:flex; align-items:center; justify-content:space-between; padding:12px 0; }
+    .toggle label { font-weight:600; }
+    
+    .form-group { margin-bottom:16px; }
+    .form-group label { display:block; margin-bottom:6px; font-weight:600; color:#374151; }
+    .form-group input, .form-group textarea, .form-group select { 
+      width:100%; padding:10px; border:1px solid #d1d5db; border-radius:6px; font-size:14px;
+    }
+    .form-group textarea { min-height:80px; resize:vertical; }
+    
+    .keywords-list { display:flex; flex-direction:column; gap:12px; }
+    .keyword-item { background:#f9fafb; padding:12px; border-radius:6px; border:1px solid #e5e7eb; }
+    .keyword-item .keywords { color:#6b7280; font-size:13px; margin-bottom:6px; }
+    .keyword-item .response { font-size:14px; }
+    .keyword-actions { display:flex; gap:8px; margin-top:8px; }
+    
+    button { padding:10px 16px; border:none; border-radius:6px; cursor:pointer; font-weight:600; }
+    .btn-primary { background:#10b981; color:#fff; }
+    .btn-primary:hover { background:#059669; }
+    .btn-secondary { background:#6b7280; color:#fff; }
+    .btn-secondary:hover { background:#4b5563; }
+    .btn-danger { background:#ef4444; color:#fff; }
+    .btn-danger:hover { background:#dc2626; }
+    
+    .actions { display:flex; gap:12px; margin-top:20px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🤖 Configuração do Chatbot</h1>
+  </header>
+
+  <div class="container">
+    <div class="section">
+      <div class="section-title">Status do Bot</div>
+      <div class="toggle">
+        <label>Ativar Chatbot</label>
+        <input type="checkbox" id="ativoCheckbox" onchange="toggleAtivo()">
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Horário de Atendimento</div>
+      <div class="form-group">
+        <label>Início</label>
+        <input type="time" id="horaInicio" value="08:00">
+      </div>
+      <div class="form-group">
+        <label>Fim</label>
+        <input type="time" id="horaFim" value="18:00">
+      </div>
+      <div class="form-group">
+        <label>Dias da Semana</label>
+        <div>
+          <label><input type="checkbox" class="dia" value="1" checked> Segunda</label>
+          <label><input type="checkbox" class="dia" value="2" checked> Terça</label>
+          <label><input type="checkbox" class="dia" value="3" checked> Quarta</label>
+          <label><input type="checkbox" class="dia" value="4" checked> Quinta</label>
+          <label><input type="checkbox" class="dia" value="5" checked> Sexta</label>
+          <label><input type="checkbox" class="dia" value="6"> Sábado</label>
+          <label><input type="checkbox" class="dia" value="0"> Domingo</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Mensagens Padrão</div>
+      <div class="form-group">
+        <label>Mensagem de Boas-Vindas</label>
+        <textarea id="msgBoasVindas">Olá! Bem-vindo ao nosso atendimento. Como posso ajudar?</textarea>
+      </div>
+      <div class="form-group">
+        <label>Mensagem Fora de Horário</label>
+        <textarea id="msgForaHorario">No momento estamos fora do horário de atendimento. Retornaremos em breve!</textarea>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Palavras-Chave e Respostas</div>
+      <div id="keywordsList" class="keywords-list">
+        <!-- Preenchido dinamicamente -->
+      </div>
+      <button class="btn-primary" onclick="adicionarPalavraChave()">+ Adicionar Nova Regra</button>
+    </div>
+
+    <div class="actions">
+      <button class="btn-primary" onclick="salvarConfiguracoes()">💾 Salvar Configurações</button>
+      <button class="btn-secondary" onclick="carregarConfiguracoes()">🔄 Recarregar</button>
+    </div>
+  </div>
+
+  <script>
+    let regras = {};
+
+    async function carregarConfiguracoes() {
+      const res = await window.chatbotAPI.carregarRegras();
+      if (res.success) {
+        regras = res.rules;
+        aplicarRegras();
+      }
+    }
+
+    function aplicarRegras() {
+      document.getElementById('ativoCheckbox').checked = regras.ativo || false;
+      document.getElementById('horaInicio').value = regras.horarioAtendimento?.inicio || '08:00';
+      document.getElementById('horaFim').value = regras.horarioAtendimento?.fim || '18:00';
+      
+      document.querySelectorAll('.dia').forEach(cb => {
+        cb.checked = regras.horarioAtendimento?.diasSemana?.includes(parseInt(cb.value)) || false;
+      });
+      
+      document.getElementById('msgBoasVindas').value = regras.mensagemBoasVindas || '';
+      document.getElementById('msgForaHorario').value = regras.mensagemForaHorario || '';
+      
+      renderKeywords();
+    }
+
+    function renderKeywords() {
+      const lista = document.getElementById('keywordsList');
+      lista.innerHTML = '';
+      
+      (regras.palavrasChave || []).forEach((item, idx) => {
+        const div = document.createElement('div');
+        div.className = 'keyword-item';
+        div.innerHTML = `
+          <div class="keywords"><strong>Palavras:</strong> ${item.palavras.join(', ')}</div>
+          <div class="response"><strong>Resposta:</strong> ${item.resposta}</div>
+          <div class="keyword-actions">
+            <button class="btn-danger" onclick="removerPalavraChave(${idx})">Remover</button>
+          </div>
+        `;
+        lista.appendChild(div);
+      });
+    }
+
+    function adicionarPalavraChave() {
+      const palavras = prompt('Digite as palavras-chave separadas por vírgula:');
+      if (!palavras) return;
+      
+      const resposta = prompt('Digite a resposta automática:');
+      if (!resposta) return;
+      
+      if (!regras.palavrasChave) regras.palavrasChave = [];
+      
+      regras.palavrasChave.push({
+        palavras: palavras.split(',').map(p => p.trim()),
+        resposta
+      });
+      
+      renderKeywords();
+    }
+
+    function removerPalavraChave(idx) {
+      if (!confirm('Remover esta regra?')) return;
+      regras.palavrasChave.splice(idx, 1);
+      renderKeywords();
+    }
+
+    function toggleAtivo() {
+      regras.ativo = document.getElementById('ativoCheckbox').checked;
+    }
+
+    async function salvarConfiguracoes() {
+      regras.ativo = document.getElementById('ativoCheckbox').checked;
+      regras.horarioAtendimento = {
+        inicio: document.getElementById('horaInicio').value,
+        fim: document.getElementById('horaFim').value,
+        diasSemana: Array.from(document.querySelectorAll('.dia:checked')).map(cb => parseInt(cb.value))
+      };
+      regras.mensagemBoasVindas = document.getElementById('msgBoasVindas').value;
+      regras.mensagemForaHorario = document.getElementById('msgForaHorario').value;
+      
+      const res = await window.chatbotAPI.salvarRegras(regras);
+      
+      if (res.success) {
+        alert('✅ Configurações salvas com sucesso!');
+      } else {
+        alert('❌ Erro ao salvar: ' + res.message);
+      }
+    }
+
+    carregarConfiguracoes();
+  </script>
+</body>
+</html>

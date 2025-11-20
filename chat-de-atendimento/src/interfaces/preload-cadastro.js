@@ -7,7 +7,5 @@ contextBridge.exposeInMainWorld('cadastroAPI', {
      * @param {Object} newUser - Dados do novo usuário
      * @returns {Promise<Object>} Retorna { success: boolean, message: string }
      */
-    registerUser: (newUser) => {
-        return ipcRenderer.invoke('register-new-user', newUser);
-    }
+    cadastrar: (dados) => ipcRenderer.invoke('register-user', dados)
 });

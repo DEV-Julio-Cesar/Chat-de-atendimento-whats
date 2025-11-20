@@ -3,88 +3,397 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Atendimento WhatsApp</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>body { font-family: 'Inter', sans-serif; }</style>
-</head>
-<body class="bg-gray-100 antialiased flex items-center justify-center h-screen">
+    <title>Login - Sistema de Atendimento</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm">
-        <h1 class="text-2xl font-bold mb-6 text-teal-600 text-center">Acesso ao Sistema</h1>
-        
-        <form id="login-form">
-            <div class="mb-4">
-                <label for="username" class="block text-gray-700 font-semibold mb-2">Usuário</label>
-                <input type="text" id="username" placeholder="Seu usuário" 
-                       class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" required>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .login-container {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 400px;
+            animation: slideIn 0.5s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo-icon {
+            font-size: 64px;
+            margin-bottom: 10px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            color: #555;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 15px;
+            transition: all 0.3s;
+            background: #f8f9fa;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .password-toggle {
+            position: relative;
+        }
+
+        .password-toggle input {
+            padding-right: 45px;
+        }
+
+        .toggle-btn {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 20px;
+            color: #666;
+            padding: 5px;
+        }
+
+        .btn-login {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-login:active {
+            transform: translateY(0);
+        }
+
+        .btn-login:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .message {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            text-align: center;
+            animation: fadeIn 0.3s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .message.error {
+            background: #fee;
+            color: #c33;
+            border: 1px solid #fcc;
+        }
+
+        .message.success {
+            background: #efe;
+            color: #3c3;
+            border: 1px solid #cfc;
+        }
+
+        .message.info {
+            background: #eef;
+            color: #33c;
+            border: 1px solid #ccf;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .version {
+            text-align: center;
+            color: #999;
+            font-size: 12px;
+            margin-top: 15px;
+        }
+
+        .remember-me {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .remember-me input[type="checkbox"] {
+            width: auto;
+            cursor: pointer;
+        }
+
+        .remember-me label {
+            margin: 0;
+            font-weight: 400;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">
+            <div class="logo-icon">🚀</div>
+            <h1>Sistema de Atendimento</h1>
+            <p class="subtitle">WhatsApp Business</p>
+        </div>
+
+        <div id="messageBox"></div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="username">Usuário</label>
+                <input 
+                    type="text" 
+                    id="username" 
+                    name="username"
+                    placeholder="Digite seu usuário"
+                    autocomplete="username"
+                    required
+                    autofocus
+                >
             </div>
-            <div class="mb-6">
-                <label for="password" class="block text-gray-700 font-semibold mb-2">Senha</label>
-                <input type="password" id="password" placeholder="Sua senha" 
-                       class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" required>
+
+            <div class="form-group">
+                <label for="password">Senha</label>
+                <div class="password-toggle">
+                    <input 
+                        type="password" 
+                        id="password" 
+                        name="password"
+                        placeholder="Digite sua senha"
+                        autocomplete="current-password"
+                        required
+                    >
+                    <button type="button" class="toggle-btn" onclick="togglePassword()">👁️</button>
+                </div>
             </div>
-            <p id="login-message" class="text-red-600 text-sm mb-4 hidden">Usuário ou senha inválidos.</p>
-            <button type="submit" id="btn-login" class="w-full bg-teal-600 text-white py-3 rounded-lg hover:bg-teal-700 transition duration-150 font-bold">
+
+            <div class="remember-me">
+                <input type="checkbox" id="rememberMe">
+                <label for="rememberMe">Lembrar-me</label>
+            </div>
+
+            <button type="submit" class="btn-login" id="btnLogin">
                 Entrar
             </button>
-            <button type="button" id="btn-cadastrar-usuario" class="w-full mt-2 bg-green-500 text-white py-3 rounded-lg hover:bg-green-600 transition duration-150 font-bold">
-                ➕ Cadastrar novo usuário
-            </button>
         </form>
+
+        <div class="footer">
+            <a href="#" onclick="abrirCadastro(); return false;">Criar nova conta</a>
+        </div>
+
+        <div class="version">v1.0.0</div>
     </div>
 
     <script>
-        // Garante que o script rode após o HTML carregar
-        document.addEventListener('DOMContentLoaded', () => {
+        // Verifica se a API está disponível
+        if (!window.authAPI) {
+            mostrarMensagem('Erro fatal: A API de login não foi carregada.', 'error');
+            document.getElementById('loginForm').style.display = 'none';
+            throw new Error('authAPI não disponível');
+        }
 
-            // Referência ao formulário
-            const form = document.getElementById('login-form');
+        // Carregar usuário salvo
+        const savedUser = localStorage.getItem('savedUsername');
+        if (savedUser) {
+            document.getElementById('username').value = savedUser;
+            document.getElementById('rememberMe').checked = true;
+        }
+
+        function mostrarMensagem(texto, tipo = 'info') {
+            const box = document.getElementById('messageBox');
+            box.innerHTML = `<div class="message ${tipo}">${texto}</div>`;
             
-            const usernameInput = document.getElementById('username');
-            const passwordInput = document.getElementById('password');
-            const loginMessage = document.getElementById('login-message');
-            const btnLogin = document.getElementById('btn-login');
+            if (tipo === 'success') {
+                setTimeout(() => {
+                    box.innerHTML = '';
+                }, 3000);
+            }
+        }
 
-            form.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                btnLogin.textContent = 'Verificando...';
-                btnLogin.disabled = true;
-                loginMessage.classList.add('hidden');
+        function togglePassword() {
+            const input = document.getElementById('password');
+            const btn = event.target;
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                btn.textContent = '🙈';
+            } else {
+                input.type = 'password';
+                btn.textContent = '👁️';
+            }
+        }
 
-                const username = usernameInput.value;
-                const password = passwordInput.value;
+        function abrirCadastro() {
+            window.authAPI.abrirCadastro();
+        }
 
-                // Solução 2: Validação pelo backend (IPC)
-                try {
-                    if (window.loginAPI && typeof window.loginAPI.authenticate === 'function') {
-                        const isAuthenticated = await window.loginAPI.authenticate(username, password);
-                        if (!isAuthenticated) {
-                            loginMessage.textContent = 'Usuário ou senha inválidos.';
-                            loginMessage.classList.remove('hidden');
-                        }
-                        // Se for true, o main.js cuida da troca de janela
+        // Handler do formulário
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            const rememberMe = document.getElementById('rememberMe').checked;
+            
+            if (!username || !password) {
+                mostrarMensagem('Por favor, preencha todos os campos.', 'error');
+                return;
+            }
+
+            const btnLogin = document.getElementById('btnLogin');
+            btnLogin.disabled = true;
+            btnLogin.innerHTML = '<span class="loading-spinner"></span>Entrando...';
+            
+            try {
+                const resultado = await window.authAPI.tentarLogin(username, password);
+                
+                if (resultado.success) {
+                    mostrarMensagem('✅ Login realizado com sucesso!', 'success');
+                    
+                    // Salvar usuário se marcou "lembrar-me"
+                    if (rememberMe) {
+                        localStorage.setItem('savedUsername', username);
                     } else {
-                        loginMessage.textContent = 'Erro fatal: A API de login não foi carregada.';
-                        loginMessage.classList.remove('hidden');
-                        console.error("window.loginAPI não está definido.");
+                        localStorage.removeItem('savedUsername');
                     }
-                } catch (error) {
-                    loginMessage.textContent = 'Erro de comunicação. Tente novamente.';
-                    loginMessage.classList.remove('hidden');
-                    console.error('Erro de autenticação IPC:', error);
-                } finally {
-                    btnLogin.textContent = 'Entrar';
-                    btnLogin.disabled = false;
-                }
-            });            document.getElementById("btn-cadastrar-usuario").onclick = function() {
-                if (window.loginAPI && typeof window.loginAPI.openCadastroWindow === 'function') {
-                    window.loginAPI.openCadastroWindow();
+                    
+                    // Fecha janela de login após 1 segundo
+                    setTimeout(() => {
+                        window.authAPI.fecharJanela();
+                    }, 1000);
+                    
                 } else {
-                    // Fallback para caso a API não esteja disponível
-                    window.location.href = "cadastro.html";
+                    mostrarMensagem(resultado.message || '❌ Usuário ou senha inválidos.', 'error');
+                    btnLogin.disabled = false;
+                    btnLogin.innerHTML = 'Entrar';
+                    document.getElementById('password').value = '';
+                    document.getElementById('password').focus();
                 }
-            };
+                
+            } catch (erro) {
+                mostrarMensagem('❌ Erro ao realizar login: ' + erro.message, 'error');
+                btnLogin.disabled = false;
+                btnLogin.innerHTML = 'Entrar';
+            }
         });
+
+        // Enter no campo de senha
+        document.getElementById('password').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('loginForm').dispatchEvent(new Event('submit'));
+            }
+        });
+
+        // Mensagem inicial
+        mostrarMensagem('👋 Bem-vindo! Use "admin/admin" para primeiro acesso.', 'info');
     </script>
 </body>
 </html>

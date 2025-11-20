@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard - Métricas</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: Arial, sans-serif; background:#f5f5f5; }
+    
+    header { background:#1f2937; color:#fff; padding:20px 30px; }
+    header h1 { font-size:24px; }
+    
+    .container { padding:30px; max-width:1400px; margin:0 auto; }
+    
+    .cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap:20px; margin-bottom:30px; }
+    .card { background:#fff; padding:24px; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.1); }
+    .card-title { font-size:14px; color:#6b7280; font-weight:600; margin-bottom:8px; }
+    .card-value { font-size:36px; font-weight:700; color:#111827; }
+    .card-icon { font-size:32px; float:right; opacity:.3; }
+    
+    .chart-container { background:#fff; padding:24px; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.1); margin-bottom:20px; }
+    .chart-title { font-size:18px; font-weight:600; margin-bottom:16px; color:#111827; }
+    
+    .actions { display:flex; gap:12px; margin-bottom:20px; }
+    .actions button { padding:12px 20px; background:#1f2937; color:#fff; border:none; border-radius:8px; cursor:pointer; font-weight:600; }
+    .actions button:hover { background:#374151; }
+    .actions button.danger { background:#ef4444; }
+    .actions button.danger:hover { background:#dc2626; }
+    
+    .progress-bar { width:100%; height:8px; background:#e5e7eb; border-radius:4px; overflow:hidden; margin-top:12px; }
+    .progress-fill { height:100%; background:#10b981; transition: width .3s; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📊 Dashboard - Métricas do Sistema</h1>
+  </header>
+
+  <div class="container">
+    <div class="actions">
+      <button onclick="atualizarMetricas()">🔄 Atualizar</button>
+      <button onclick="exportar('pdf')">📄 Exportar PDF</button>
+      <button onclick="exportar('xlsx')">📊 Exportar Excel</button>
+      <button class="danger" onclick="resetarMetricas()">🗑️ Resetar Métricas</button>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-icon">📨</div>
+        <div class="card-title">Mensagens Enviadas</div>
+        <div class="card-value" id="enviadas">0</div>
+        <div class="progress-bar"><div class="progress-fill" id="prog-enviadas"></div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">📬</div>
+        <div class="card-title">Mensagens Recebidas</div>
+        <div class="card-value" id="recebidas">0</div>
+        <div class="progress-bar"><div class="progress-fill" id="prog-recebidas"></div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">💬</div>
+        <div class="card-title">Total de Mensagens</div>
+        <div class="card-value" id="total">0</div>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">📊</div>
+        <div class="card-title">Taxa de Resposta</div>
+        <div class="card-value" id="taxa">0%</div>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">💬</div>
+        <div class="card-title">Conversas Ativas</div>
+        <div class="card-value" id="conversas">0</div>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">📱</div>
+        <div class="card-title">Clientes Conectados</div>
+        <div class="card-value" id="clientes">0</div>
+      </div>
+    </div>
+
+    <div class="chart-container">
+      <div class="chart-title">Resumo de Atividades</div>
+      <div id="resumo" style="color:#6b7280;padding:20px;">
+        Carregando estatísticas...
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function atualizarMetricas() {
+      const res = await window.dashboardAPI.obterMetricas();
+      
+      if (!res.success) {
+        alert('Erro ao carregar métricas: ' + res.message);
+        return;
+      }
+
+      const m = res.metricas;
+      
+      document.getElementById('enviadas').textContent = m.mensagensEnviadas.toLocaleString();
+      document.getElementById('recebidas').textContent = m.mensagensRecebidas.toLocaleString();
+      document.getElementById('total').textContent = m.totalMensagens.toLocaleString();
+      document.getElementById('conversas').textContent = m.totalConversas.toLocaleString();
+      document.getElementById('clientes').textContent = m.clientesAtivos.toLocaleString();
+      
+      const taxa = m.totalMensagens > 0 
+        ? ((m.mensagensEnviadas / m.totalMensagens) * 100).toFixed(1)
+        : 0;
+      document.getElementById('taxa').textContent = taxa + '%';
+      
+      // Progress bars
+      const maxVal = Math.max(m.mensagensEnviadas, m.mensagensRecebidas, 1);
+      document.getElementById('prog-enviadas').style.width = 
+        ((m.mensagensEnviadas / maxVal) * 100) + '%';
+      document.getElementById('prog-recebidas').style.width = 
+        ((m.mensagensRecebidas / maxVal) * 100) + '%';
+      
+      // Resumo
+      const agora = new Date();
+      document.getElementById('resumo').innerHTML = `
+        <p style="margin-bottom:12px;">
+          <strong>Última atualização:</strong> ${agora.toLocaleString()}
+        </p>
+        <p style="margin-bottom:8px;">
+          Total de interações: <strong>${m.totalMensagens}</strong>
+        </p>
+        <p style="margin-bottom:8px;">
+          Média de resposta: <strong>${m.mediaResposta}</strong> mensagens recebidas por enviada
+        </p>
+        <p style="color:#10b981;">
+          ✅ Sistema operacional
+        </p>
+      `;
+    }
+
+    async function resetarMetricas() {
+      if (!confirm('Deseja realmente resetar todas as métricas? Esta ação não pode ser desfeita.')) {
+        return;
+      }
+
+      const res = await window.dashboardAPI.resetarMetricas();
+      
+      if (res.success) {
+        alert('Métricas resetadas com sucesso!');
+        atualizarMetricas();
+      } else {
+        alert('Erro ao resetar: ' + res.message);
+      }
+    }
+
+    async function exportar(tipo) {
+      const res = await window.dashboardAPI.exportar(tipo);
+      if (res.success) alert(`Arquivo gerado:\n${res.file}`);
+      else alert('Erro: ' + res.message);
+    }
+
+    // Atualiza a cada 30 segundos
+    setInterval(atualizarMetricas, 30000);
+    
+    // Carrega inicial
+    atualizarMetricas();
+  </script>
+</body>
+</html>

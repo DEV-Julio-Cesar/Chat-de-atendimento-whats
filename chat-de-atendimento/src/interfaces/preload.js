@@ -82,5 +82,28 @@ contextBridge.exposeInMainWorld('internalChatAPI', {
 });
 
 contextBridge.exposeInMainWorld('electronAPI', {
-    setFullScreen: (flag) => ipcRenderer.send('set-fullscreen', flag)
+  abrirNovaJanelaQR: () => ipcRenderer.invoke('open-new-qr-window'),
+  listarClientesConectados: () => ipcRenderer.invoke('list-connected-clients'),
+  desconectarCliente: (clientId) => ipcRenderer.invoke('disconnect-client', clientId),
+  enviarMensagem: (dados) => ipcRenderer.invoke('send-whatsapp-message', dados),
+  aoClientePronto: (callback) => ipcRenderer.on('new-client-ready', (_, data) => callback(data)),
+  aoNovaMensagem: (callback) => ipcRenderer.on('nova-mensagem-recebida', (_, data) => callback(data)),
+  abrirUsuarios: () => ipcRenderer.send('open-users-window'),
+  abrirChat: (clientId) => ipcRenderer.send('open-chat-window', clientId),
+  abrirDashboard: () => ipcRenderer.send('open-dashboard'),
+  abrirChatbot: () => ipcRenderer.send('open-chatbot'),
+  // NOVO: backups/relatórios/tema/atendimentos
+  backupNow: () => ipcRenderer.invoke('backup:run'),
+  listarBackups: () => ipcRenderer.invoke('backup:list'),
+  exportarRelatorio: (tipo) => ipcRenderer.invoke('report:export', tipo),
+  getTheme: () => ipcRenderer.invoke('theme:get'),
+  setTheme: (t) => ipcRenderer.invoke('theme:set', t),
+  attend: {
+    register: (u) => ipcRenderer.invoke('attend:register', u),
+    setStatus: (p) => ipcRenderer.invoke('attend:set-status', p),
+    claim: (p) => ipcRenderer.invoke('attend:claim', p),
+    release: (p) => ipcRenderer.invoke('attend:release', p),
+    get: (p) => ipcRenderer.invoke('attend:get', p),
+    list: () => ipcRenderer.invoke('attend:list')
+  }
 });

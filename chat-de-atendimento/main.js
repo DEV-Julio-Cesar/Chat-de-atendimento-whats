@@ -1,104 +1,170 @@
 // =========================================================================
-// 1. IMPORTAÇÕES E CONFIGURAÇÕES
+// SISTEMA DE ATENDIMENTO WHATSAPP - ARQUIVO PRINCIPAL
 // =========================================================================
-const { app, BrowserWindow, ipcMain, dialog, Notification, Menu } = require('electron');
+
+// =========================================================================
+// 1. IMPORTAÇÕES
+// =========================================================================
+const { app, BrowserWindow, ipcMain, Menu, dialog, Notification } = require('electron');
 const path = require('path');
-
-// 🚀 IMPORTAÇÕES DA NOVA ESTRUTURA ORGANIZADAS
-const { configuracoes, obterConfiguracao } = require('./config/configuracoes-principais');
-const { validarCredenciais } = require('./src/autenticacao/validador-credenciais');
-const gerenciadorUsuarios = require('./src/autenticacao/gerenciador-usuarios');
-
-// Importações das bibliotecas necessárias
+const fs = require('fs-extra');
 const axios = require('axios');
 const WebSocket = require('ws');
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
-const fs = require('fs-extra');
+
+// Importações dos módulos internos
+const { validarCredenciais, obterNivelPermissao, obterDadosUsuario } = require('./src/aplicacao/validacao-credenciais');
+const gerenciadorUsuarios = require('./src/aplicacao/gerenciador-usuarios');
+const logger = require('./src/infraestrutura/logger');
+const gerenciadorMensagens = require('./src/aplicacao/gerenciador-mensagens');
+const gerenciadorMidia = require('./src/aplicacao/gerenciador-midia');
+const chatbot = require('./src/aplicacao/chatbot');
+const metricas = require('./src/aplicacao/metricas');
+const notificacoes = require('./src/aplicacao/notificacoes');
+const backups = require('./src/aplicacao/backup');
+const atend = require('./src/aplicacao/atendimentos');
+const relatorios = require('./src/aplicacao/relatorios');
+const tema = require('./src/aplicacao/tema');
+const { startApi } = require('./src/infraestrutura/api');
 
 // =========================================================================
 // 2. VARIÁVEIS GLOBAIS
 // =========================================================================
+
+// Janelas do Electron
+let mainWindow = null;
+let loginWindow = null;
+let historyWindow = null;
+
+// Clientes WhatsApp (múltiplas conexões)
+let whatsappClients = {};
+let qrWindows = {};
+
+// Configurações da API Cloud (WhatsApp Business)
 let WHATSAPP_TOKEN = '';
 let PHONE_NUMBER_ID = '';
-let API_VERSION = 'v19.0';
-let mainWindow = null;
-let loginWindow = null; 
-let historyWindow = null;
-let whatsappClient = null;
-let whatsappClients = {}; // 🆕 Armazena múltiplos clientes
-let qrWindows = {}; // 🆕 Armazena janelas de QR Code
+const API_VERSION = 'v19.0';
+
+// WebSocket
 const WS_SERVER_URL = 'ws://localhost:8080';
 let ws = null;
 let internalWS = null;
 let internalChatHistory = [];
 
-// Conectar chat interno
-function connectInternalChat() {
-    try {
-        internalWS = new WebSocket('ws://localhost:9090');
-        internalWS.on('open', () => console.log('[InternalChat] Conectado'));
-        internalWS.on('message', data => {
-            let msg;
-            try { msg = JSON.parse(data.toString()); } catch { return; }
-            if (msg.type === 'internal') {
-                internalChatHistory.push(msg);
-                if (mainWindow) mainWindow.webContents.send('internal-chat-message', msg);
-            }
-        });
-        internalWS.on('close', () => {
-            console.log('[InternalChat] Fechado, tentando reconectar...');
-            setTimeout(connectInternalChat, 4000);
-        });
-        internalWS.on('error', e => console.error('[InternalChat] Erro:', e.message));
-    } catch (e) {
-        console.error('[InternalChat] Falha de conexão:', e.message);
-    }
-}
-
-// Enviar msg interna
-function sendInternalChatMessage(from, texto) {
-    if (!internalWS || internalWS.readyState !== WebSocket.OPEN) {
-        return { sucesso: false, erro: 'WS interno indisponível' };
-    }
-    const payload = { type: 'internal', from, texto };
-    internalWS.send(JSON.stringify(payload));
-    return { sucesso: true };
-}
+// Usuário logado
+let usuarioLogado = null;
 
 // =========================================================================
-// 3. DEFINIÇÕES DE FUNÇÕES (Todas antes de 'app.whenReady')
+// 3. FUNÇÕES DE CONEXÃO WEBSOCKET
 // =========================================================================
 
-// --- FUNÇÃO WEBSOCKET (Sua lógica) ---
+/**
+ * Conecta ao servidor WebSocket externo
+ */
 function connectWebSocket() {
-    console.log(`[WS] Tentando conectar ao servidor em ${WS_SERVER_URL}...`);
+    logger.info(`[WS] Conectando a ${WS_SERVER_URL}...`);
+    
     ws = new WebSocket(WS_SERVER_URL);
-    ws.on('open', () => console.log('[WS] Conexão WebSocket estabelecida!'));
+    
+    ws.on('open', () => {
+        logger.info('[WS] Conexão estabelecida');
+    });
+    
     ws.on('message', (data) => {
         try {
             const mensagem = JSON.parse(data.toString());
             if (mainWindow) {
                 mainWindow.webContents.send('nova-mensagem-recebida', mensagem);
             }
-        } catch (e) { console.error('[WS] Erro ao processar mensagem JSON:', e.message); }
+        } catch (erro) {
+            logger.erro('[WS] Erro ao processar mensagem:', erro.message);
+        }
     });
-    ws.on('close', () => setTimeout(connectWebSocket, 5000));
-    ws.on('error', (err) => console.error('[WS] Erro no WebSocket:', err.message));
+    
+    ws.on('close', () => {
+        logger.info('[WS] Conexão fechada. Reconectando em 5s...');
+        setTimeout(connectWebSocket, 5000);
+    });
+    
+    ws.on('error', (erro) => {
+        logger.erro('[WS] Erro:', erro.message);
+    });
 }
 
-// --- FUNÇÃO CLOUD API (Sua lógica) ---
+/**
+ * Conecta ao servidor de chat interno
+ */
+function connectInternalChat() {
+    try {
+        internalWS = new WebSocket('ws://localhost:9090');
+        
+        internalWS.on('open', () => {
+            logger.info('[ChatInterno] Conectado');
+        });
+        
+        internalWS.on('message', (data) => {
+            try {
+                const msg = JSON.parse(data.toString());
+                if (msg.type === 'internal') {
+                    internalChatHistory.push(msg);
+                    if (mainWindow) {
+                        mainWindow.webContents.send('internal-chat-message', msg);
+                    }
+                }
+            } catch (erro) {
+                logger.erro('[ChatInterno] Erro ao processar:', erro.message);
+            }
+        });
+        
+        internalWS.on('close', () => {
+            logger.info('[ChatInterno] Desconectado. Reconectando...');
+            setTimeout(connectInternalChat, 4000);
+        });
+        
+        internalWS.on('error', (erro) => {
+            logger.erro('[ChatInterno] Erro:', erro.message);
+        });
+    } catch (erro) {
+        logger.erro('[ChatInterno] Falha na conexão:', erro.message);
+    }
+}
+
+/**
+ * Envia mensagem para o chat interno
+ */
+function sendInternalChatMessage(from, texto) {
+    if (!internalWS || internalWS.readyState !== WebSocket.OPEN) {
+        return { sucesso: false, erro: 'WebSocket indisponível' };
+    }
+    
+    const payload = { type: 'internal', from, texto, timestamp: Date.now() };
+    internalWS.send(JSON.stringify(payload));
+    
+    return { sucesso: true };
+}
+
+// =========================================================================
+// 4. FUNÇÕES DE API WHATSAPP CLOUD
+// =========================================================================
+
+/**
+ * Envia mensagem via WhatsApp Cloud API
+ */
 async function enviarMensagemWhatsApp(numeroDestino, mensagem) {
     if (!WHATSAPP_TOKEN || !PHONE_NUMBER_ID) {
-        throw new Error('As credenciais da API do WhatsApp não estão configuradas.');
+        throw new Error('Credenciais da API não configuradas');
     }
+    
     const WHATSAPP_API_URL = `https://graph.facebook.com/${API_VERSION}/${PHONE_NUMBER_ID}/messages`;
+    
     const payload = {
         messaging_product: 'whatsapp',
         to: numeroDestino,
         type: 'text',
         text: { body: mensagem }
     };
+    
     try {
         const response = await axios.post(WHATSAPP_API_URL, payload, {
             headers: {
@@ -106,54 +172,81 @@ async function enviarMensagemWhatsApp(numeroDestino, mensagem) {
                 'Content-Type': 'application/json'
             }
         });
+        
         return response.data;
-    } catch (error) {
-        console.error('ERRO ao enviar mensagem via API do WhatsApp:', error.response ? error.response.data : error.message);
-        throw new Error(`Falha na API do WhatsApp: ${error.response ? (error.response.data?.error?.message || 'Erro desconhecido') : error.message}`);
+    } catch (erro) {
+        const mensagemErro = erro.response?.data?.error?.message || erro.message;
+        logger.erro('[API WhatsApp] Erro:', mensagemErro);
+        throw new Error(`Falha na API: ${mensagemErro}`);
     }
 }
 
-// --- FUNÇÕES DE JANELA ---
+// =========================================================================
+// 5. FUNÇÕES DE CRIAÇÃO DE JANELAS
+// =========================================================================
 
+/**
+ * Cria janela de login
+ */
 function createLoginWindow() {
     loginWindow = new BrowserWindow({
         width: 450,
-        height: 550,
+        height: 600,
         resizable: false,
+        frame: true,
         webPreferences: {
             preload: path.join(__dirname, 'src/interfaces/preload-login.js'),
             nodeIntegration: false,
             contextIsolation: true
         }
     });
+
     loginWindow.loadFile('src/interfaces/login.html');
+    
+    loginWindow.on('closed', () => {
+        loginWindow = null;
+        // Se fechar login sem autenticar, sai do app
+        if (!mainWindow) {
+            app.quit();
+        }
+    });
 }
 
+/**
+ * Cria janela principal
+ */
 function createMainWindow() {
     mainWindow = new BrowserWindow({
         width: 1200,
         height: 800,
-        minWidth: 800,
-        minHeight: 600,
         webPreferences: {
             preload: path.join(__dirname, 'src/interfaces/preload.js'),
             nodeIntegration: false,
             contextIsolation: true
         }
     });
+
     mainWindow.loadFile('src/interfaces/index.html');
     
-    if (loginWindow) {
-        loginWindow.close();
-        loginWindow = null;
-    }
+    // Envia dados do usuário logado
+    mainWindow.webContents.on('did-finish-load', () => {
+        mainWindow.webContents.send('usuario-logado', usuarioLogado);
+    });
+
+    mainWindow.on('closed', () => {
+        mainWindow = null;
+    });
 }
 
+/**
+ * Cria janela de histórico
+ */
 function createHistoryWindow() {
     if (historyWindow) {
         historyWindow.focus();
         return;
     }
+    
     historyWindow = new BrowserWindow({
         width: 800,
         height: 700,
@@ -163,16 +256,20 @@ function createHistoryWindow() {
             contextIsolation: true
         }
     });
+    
     historyWindow.loadFile('src/interfaces/history.html');
     historyWindow.on('closed', () => {
         historyWindow = null;
     });
 }
 
+/**
+ * Cria janela de cadastro
+ */
 function createCadastroWindow() {
-    const cadastroWindow = new BrowserWindow({
+    const win = new BrowserWindow({
         width: 500,
-        height: 700,
+        height: 650,
         resizable: false,
         webPreferences: {
             preload: path.join(__dirname, 'src/interfaces/preload-cadastro.js'),
@@ -180,18 +277,22 @@ function createCadastroWindow() {
             contextIsolation: true
         }
     });
-    cadastroWindow.loadFile('src/interfaces/cadastro.html');
+    win.loadFile('src/interfaces/cadastro.html');
 }
 
-// --- FUNÇÃO PARA CRIAR JANELA DE QR CODE MÚLTIPLA ---
+/**
+ * Cria janela de QR Code para cliente específico
+ */
 function createQRWindow(clientId) {
     if (qrWindows[clientId]) {
         qrWindows[clientId].focus();
         return;
-    }    const qrWindow = new BrowserWindow({
+    }
+    
+    const qrWindow = new BrowserWindow({
         width: 500,
         height: 650,
-        title: `WhatsApp QR Code - ${clientId}`,
+        title: `WhatsApp - ${clientId}`,
         resizable: false,
         webPreferences: {
             preload: path.join(__dirname, 'src/interfaces/preload-qr.js'),
@@ -199,78 +300,109 @@ function createQRWindow(clientId) {
             contextIsolation: true
         }
     });
-
+    
     qrWindow.loadFile('src/interfaces/qr-window.html');
     qrWindows[clientId] = qrWindow;
-
-    qrWindow.on('closed', () => {
-        delete qrWindows[clientId];
-    });
-
-    // Envia o clientId para a janela
+    
     qrWindow.webContents.once('did-finish-load', () => {
         qrWindow.webContents.send('set-client-id', clientId);
     });
+    
+    qrWindow.on('closed', () => {
+        delete qrWindows[clientId];
+    });
 }
 
-// Conectar chat interno
-function connectInternalChat() {
-    try {
-        internalWS = new WebSocket('ws://localhost:9090');
-        internalWS.on('open', () => console.log('[InternalChat] Conectado'));
-        internalWS.on('message', data => {
-            let msg;
-            try { msg = JSON.parse(data.toString()); } catch { return; }
-            if (msg.type === 'internal') {
-                internalChatHistory.push(msg);
-                if (mainWindow) mainWindow.webContents.send('internal-chat-message', msg);
-            }
-        });
-        internalWS.on('close', () => {
-            console.log('[InternalChat] Fechado, tentando reconectar...');
-            setTimeout(connectInternalChat, 4000);
-        });
-        internalWS.on('error', e => console.error('[InternalChat] Erro:', e.message));
-    } catch (e) {
-        console.error('[InternalChat] Falha de conexão:', e.message);
-    }
+/**
+ * Cria janela de usuários
+ */
+function createUsuariosWindow() {
+    const win = new BrowserWindow({
+        width: 900,
+        height: 650,
+        webPreferences: {
+            preload: path.join(__dirname, 'src/interfaces/preload-usuarios.js'),
+            nodeIntegration: false,
+            contextIsolation: true
+        }
+    });
+    win.loadFile('src/interfaces/usuarios.html');
 }
 
-// Enviar msg interna
-function sendInternalChatMessage(from, texto) {
-    if (!internalWS || internalWS.readyState !== WebSocket.OPEN) {
-        return { sucesso: false, erro: 'WS interno indisponível' };
-    }
-    const payload = { type: 'internal', from, texto };
-    internalWS.send(JSON.stringify(payload));
-    return { sucesso: true };
+/**
+ * Cria janela de chat
+ */
+function createChatWindow(clientId) {
+    const win = new BrowserWindow({
+        width: 1200,
+        height: 800,
+        webPreferences: {
+            preload: path.join(__dirname, 'src/interfaces/preload-chat.js'),
+            nodeIntegration: false,
+            contextIsolation: true
+        }
+    });
+
+    win.loadFile('src/interfaces/chat.html');
+    
+    win.webContents.on('did-finish-load', () => {
+        win.webContents.send('set-client-id', clientId);
+    });
+}
+
+/**
+ * Cria janela do dashboard
+ */
+function createDashboardWindow() {
+    const win = new BrowserWindow({
+        width: 1200,
+        height: 800,
+        webPreferences: {
+            preload: path.join(__dirname, 'src/interfaces/preload-dashboard.js'),
+            nodeIntegration: false,
+            contextIsolation: true
+        }
+    });
+    win.loadFile('src/interfaces/dashboard.html');
+}
+
+/**
+ * Cria janela do chatbot
+ */
+function createChatbotWindow() {
+    const win = new BrowserWindow({
+        width: 900,
+        height: 700,
+        webPreferences: {
+            preload: path.join(__dirname, 'src/interfaces/preload-chatbot.js'),
+            nodeIntegration: false,
+            contextIsolation: true
+        }
+    });
+    win.loadFile('src/interfaces/chatbot.html');
 }
 
 // =========================================================================
-// 4. INICIALIZAÇÃO DO ELECTRON (O Bloco Principal)
+// 6. CONFIGURAÇÃO DE MENU
 // =========================================================================
-app.whenReady().then(() => {
-    
-    createLoginWindow(); // Inicia com a tela de login
-    connectWebSocket();
-    connectInternalChat();
-    
-    // ATIVIDADE SENAC: Criar Menu Tradicional 
+
+function criarMenuPrincipal() {
     const menuTemplate = [
         {
-            label: 'Novo',
+            label: 'Arquivo',
             submenu: [
                 {
-                    label: 'Recarregar App',
+                    label: 'Recarregar',
+                    accelerator: 'Ctrl+R',
                     click: () => {
                         if (mainWindow) mainWindow.reload();
                     }
                 },
+                { type: 'separator' },
                 {
-                    label: 'Deslogar (Sair)',
+                    label: 'Sair',
+                    accelerator: 'Ctrl+Q',
                     click: () => {
-                        // Fecha o app e força o login na próxima vez
-                        app.relaunch();
                         app.quit();
                     }
                 }
@@ -281,14 +413,30 @@ app.whenReady().then(() => {
             submenu: [
                 {
                     label: 'Voltar',
+                    accelerator: 'Alt+Left',
                     click: () => {
                         if (mainWindow) mainWindow.webContents.goBack();
                     }
                 },
                 {
                     label: 'Avançar',
+                    accelerator: 'Alt+Right',
                     click: () => {
                         if (mainWindow) mainWindow.webContents.goForward();
+                    }
+                }
+            ]
+        },
+        {
+            label: 'Visualizar',
+            submenu: [
+                {
+                    label: 'Tela Cheia',
+                    accelerator: 'F11',
+                    click: (item, focusedWindow) => {
+                        if (focusedWindow) {
+                            focusedWindow.setFullScreen(!focusedWindow.isFullScreen());
+                        }
                     }
                 }
             ]
@@ -299,21 +447,17 @@ app.whenReady().then(() => {
                 {
                     label: 'Sobre',
                     click: () => {
-                        // ATIVIDADE SENAC: 'Sobre' deve mostrar diálogo E notificação 
-
-                        // 1. Diálogo 'info' 
                         dialog.showMessageBox(mainWindow, {
                             type: 'info',
-                            title: 'Sobre este App',
-                            message: 'App de Atendimento WhatsApp',
-                            detail: 'Criado com Electron e whatsapp-web.js.'
+                            title: 'Sobre',
+                            message: 'Sistema de Atendimento WhatsApp',
+                            detail: 'Versão 1.0\nDesenvolvido com Electron e whatsapp-web.js'
                         });
-
-                        // 2. Notificação 
+                        
                         if (Notification.isSupported()) {
                             new Notification({
                                 title: 'Informação',
-                                body: 'Você está usando a versão 1.0 do App.'
+                                body: 'Você está usando a versão 1.0'
                             }).show();
                         }
                     }
@@ -321,370 +465,584 @@ app.whenReady().then(() => {
             ]
         }
     ];
-
+    
     const menu = Menu.buildFromTemplate(menuTemplate);
     Menu.setApplicationMenu(menu);
+}
 
-    app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
-            createLoginWindow(); 
+// =========================================================================
+// 7. GERENCIAMENTO DE CLIENTES WHATSAPP
+// =========================================================================
+
+/**
+ * Inicializa cliente WhatsApp com QR Code
+ */
+async function inicializarClienteWhatsApp(clientId) {
+    try {
+        logger.info(`[${clientId}] Iniciando cliente WhatsApp...`);
+
+        const client = new Client({
+            authStrategy: new LocalAuth({ clientId }),
+            puppeteer: {
+                headless: true,
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--disable-gpu'
+                ]
+            }
+        });
+
+        // Evento: QR Code gerado
+        client.on('qr', (qr) => {
+            logger.info(`[${clientId}] QR Code gerado`);
+            const qrWindow = qrWindows.get(clientId);
+            if (qrWindow && !qrWindow.isDestroyed()) {
+                qrWindow.webContents.send('qr-code-data', qr);
+            }
+        });
+
+        // Evento: Cliente pronto
+        client.on('ready', () => {
+            logger.sucesso(`[${clientId}] Cliente conectado com sucesso!`);
+            whatsappClients.set(clientId, client);
+
+            // Notificação
+            notificacoes.notificarClienteConectado(clientId);
+
+            BrowserWindow.getAllWindows().forEach(win => {
+                if (!win.isDestroyed()) {
+                    win.webContents.send('new-client-ready', {
+                        clientId,
+                        timestamp: Date.now()
+                    });
+                }
+            });
+        });
+
+        // Evento: Mensagem recebida
+        client.on('message', async (message) => {
+            if (message.fromMe || message.from.includes('@g.us')) return;
+
+            logger.info(`[${clientId}] Nova mensagem de ${message.from}: ${message.body}`);
+
+            // Notificação
+            const chat = await message.getChat();
+            notificacoes.notificarNovaMensagem(chat.name || message.from, message.body);
+
+            // Salva no histórico
+            await gerenciadorMensagens.salvarMensagem(clientId, message.from, {
+                id: message.id,
+                timestamp: message.timestamp * 1000,
+                from: message.from,
+                to: message.to,
+                body: message.body,
+                type: message.type,
+                fromMe: message.fromMe,
+                hasMedia: message.hasMedia
+            });
+
+            // Processa com chatbot
+            const resposta = await chatbot.processarMensagem(message.body, message.from, clientId);
+            
+            if (resposta.devResponder) {
+                await message.reply(resposta.resposta);
+                logger.info(`[${clientId}] Chatbot respondeu: ${resposta.resposta}`);
+            }
+
+            // Registra métrica
+            await metricas.registrarMensagemRecebida();
+            
+            // Notifica todas as janelas
+            BrowserWindow.getAllWindows().forEach(win => {
+                if (!win.isDestroyed()) {
+                    win.webContents.send('nova-mensagem-recebida', {
+                        clientId,
+                        chatId: message.from,
+                        mensagem: {
+                            id: message.id.id,
+                            body: message.body,
+                            timestamp: message.timestamp * 1000,
+                            fromMe: message.fromMe
+                        }
+                    });
+                }
+            });
+        });
+
+        // Evento: Desconectado
+        client.on('disconnected', (reason) => {
+            logger.aviso(`[${clientId}] Cliente desconectado: ${reason}`);
+            whatsappClients.delete(clientId);
+            
+            // Notificação
+            notificacoes.notificarClienteDesconectado(clientId);
+        });
+
+        await client.initialize();
+        return { success: true, clientId };
+
+    } catch (erro) {
+        logger.erro(`[${clientId}] Erro ao inicializar:`, erro.message);
+        return { success: false, message: erro.message };
+    }
+}
+
+// =========================================================================
+// 8. MANIPULADORES IPC
+// =========================================================================
+
+function configurarManipuladoresIPC() {
+    // Login
+    ipcMain.handle('login-attempt', async (_event, { username, password }) => {
+        try {
+            const valido = await validarCredenciais(username, password);
+            
+            if (!valido) {
+                return { success: false, message: 'Usuário ou senha inválidos' };
+            }
+            
+            const role = await obterNivelPermissao(username);
+            const dados = await obterDadosUsuario(username);
+            
+            usuarioLogado = { username, role, ...dados };
+            
+            logger.sucesso(`[Login] ${username} autenticado com sucesso (${role})`);
+            
+            // Registra atendente no sistema
+            await atend.registrarAtendente(username);
+            
+            return { success: true, role, dados };
+            
+        } catch (erro) {
+            logger.erro('[Login] Erro:', erro.message);
+            return { success: false, message: 'Erro ao processar login: ' + erro.message };
         }
     });
 
-    // --- MANIPULADORES IPC (Todos aqui dentro) ---
+    ipcMain.on('close-login-window', () => {
+        if (loginWindow) {
+            createMainWindow();
+            loginWindow.close();
+        }
+    });
 
-    // main.js (Linha 124 aprox.)
+    ipcMain.on('open-register-window', () => {
+        createCadastroWindow();
+    });
 
-// 1) Login - Usando o novo sistema de validação organizado
-ipcMain.handle('login-attempt', async (event, { username, password }) => {
-    // Usa o validador centralizado da nova estrutura
-    const isValid = validarCredenciais(username, password);
+    // abrir lista de usuários
+    ipcMain.on('open-users-window', () => {
+        createUsuariosWindow();
+    });
+
+    // abrir janela de chat
+    ipcMain.on('open-chat-window', (_event, clientId) => {
+        createChatWindow(clientId);
+    });
+
+    // abrir dashboard
+    ipcMain.on('open-dashboard', () => {
+        createDashboardWindow();
+    });
+
+    // abrir chatbot
+    ipcMain.on('open-chatbot', () => {
+        createChatbotWindow();
+    });
+
+    // API de cadastro
+    ipcMain.handle('register-new-user', async (event, newUser) => {
+        try {
+            const res = await gerenciadorUsuarios.cadastrarUsuario(newUser);
+            return res;
+        } catch (erro) {
+            logger.erro('[Cadastro] Erro:', erro.message);
+            return { success: false, message: 'Falha ao cadastrar usuário: ' + erro.message };
+        }
+    });
+
+    ipcMain.handle('register-user', async (_event, dados) => {
+        try {
+            const result = await gerenciadorUsuarios.cadastrarUsuario(dados);
+            return result;
+        } catch (erro) {
+            return { success: false, message: erro.message };
+        }
+    });
+
+    // Métricas
+    ipcMain.handle('get-metrics', async () => {
+        return await metricas.obterMetricas();
+    });
+
+    ipcMain.handle('reset-metrics', async () => {
+        return await metricas.resetarMetricas();
+    });
+
+    // Atualizar métricas ao enviar/receber
+    ipcMain.handle('send-whatsapp-message', async (_event, { clientId, chatId, message }) => {
+        try {
+            const client = whatsappClients.get(clientId);
+            if (!client) {
+                return { success: false, message: 'Cliente não conectado' };
+            }
+
+            await client.sendMessage(chatId, message);
+            
+            // Registra métrica
+            await metricas.registrarMensagemEnviada();
+            
+            await gerenciadorMensagens.salvarMensagem(clientId, chatId, {
+                id: { id: Date.now() },
+                timestamp: Date.now(),
+                from: 'me',
+                to: chatId,
+                body: message,
+                type: 'chat',
+                fromMe: true,
+                hasMedia: false
+            });
+
+            logger.sucesso(`[${clientId}] Mensagem enviada para ${chatId}`);
+            return { success: true };
+
+        } catch (erro) {
+            logger.erro('[Enviar Mensagem] Erro:', erro.message);
+            return { success: false, message: erro.message };
+        }
+    });
+
+    // APIs de usuários
+    ipcMain.handle('list-users', async () => {
+        try {
+            const users = await gerenciadorUsuarios.listarUsuarios();
+            return { success: true, users };
+        } catch (erro) {
+            logger.erro('[Listar Usuários] Erro:', erro.message);
+            return { success: false, users: [], message: erro.message };
+        }
+    });
+
+    ipcMain.handle('get-user-stats', async () => {
+        try {
+            const stats = await gerenciadorUsuarios.obterEstatisticas();
+            return { success: true, stats };
+        } catch (erro) {
+            logger.erro('[Estatísticas] Erro:', erro.message);
+            return { success: false, stats: {}, message: erro.message };
+        }
+    });
+
+    ipcMain.handle('remove-user', async (_e, username) => {
+        try {
+            const res = await gerenciadorUsuarios.removerUsuario(username);
+            return res;
+        } catch (erro) {
+            logger.erro('[Remover Usuário] Erro:', erro.message);
+            return { success: false, message: erro.message };
+        }
+    });
+
+    ipcMain.handle('set-user-active', async (_e, { username, ativo }) => {
+        try {
+            const res = await gerenciadorUsuarios.definirAtivo(username, ativo);
+            return res;
+        } catch (erro) {
+            logger.erro('[Ativar/Desativar Usuário] Erro:', erro.message);
+            return { success: false, message: erro.message };
+        }
+    });
+
+    // --- ENVIO DE MENSAGENS ---
     
-    if (isValid) {
-        createMainWindow();
-
-        // Diálogo de sucesso
-        dialog.showMessageBox(mainWindow, {
-            type: 'info',
-            title: 'Login Aprovado',
-            message: `Bem-vindo, ${username}! Login realizado com sucesso.`
-        });
-
-        return true;
-    }
-
-    // Login falhou - mostrar erro
-    dialog.showMessageBox(loginWindow, {
-        type: 'error',
-        title: 'Falha no Login',
-        message: 'Usuário ou senha inválidos. Tente novamente.'
-    });
-
-    return false;
-});
-
-// 1.1) Cadastrar novo usuário
-ipcMain.handle('register-new-user', (event, newUser) => {
-    return gerenciadorUsuarios.cadastrarUsuario(newUser);
-});
-
-// 1.2) Abrir janela de cadastro
-ipcMain.on('open-cadastro-window', () => {
-    createCadastroWindow();
-});
-
-// 1.3) Listar usuários cadastrados
-ipcMain.handle('list-users', () => {
-    return { success: true, users: gerenciadorUsuarios.listarUsuarios() };
-});
-
-// 1.4) Obter estatísticas de usuários
-ipcMain.handle('get-user-stats', () => {
-    return { success: true, stats: gerenciadorUsuarios.obterEstatisticas() };
-});
-
-// 1.5) Remover usuário
-ipcMain.handle('remove-user', (event, username) => {
-    return gerenciadorUsuarios.removerUsuario(username);
-});
-
-    // 2) Abrir Janela de Histórico
-    ipcMain.on('open-history-search-window', () => {
-        createHistoryWindow();
-    });
-
-    // 3) Pesquisar Histórico (Simulação)
-    ipcMain.handle('search-chat-history', async (event, filters) => {
-        console.log('[History Search] Recebido filtro:', filters);
-        if (filters.number.startsWith('55')) { 
-            const mockHistory = [
-                { texto: 'Olá, qual o status?', sender: 'Cliente', timestamp: new Date('2025-11-01T10:00:00').getTime() },
-                { texto: 'Em processamento.', sender: 'Eu', timestamp: new Date('2025-11-01T10:05:00').getTime() },
-            ];
-            const startTime = new Date(filters.dateStart).getTime();
-            const endTime = new Date(filters.dateEnd).getTime();
-            const filtered = mockHistory.filter(msg => msg.timestamp >= startTime && msg.timestamp <= endTime);
-            return { sucesso: true, history: filtered };
-        }
-        return { sucesso: false, erro: 'A consulta de histórico completo requer um banco de dados local.' };
-    });
-
-    // 4) Fluxo de QR Code (Sua lógica)
-    ipcMain.handle('iniciar-qr-code-flow', async () => {
-        if (whatsappClient) {
-            try { await whatsappClient.destroy(); } catch (e) { console.warn(e.message); }
-            whatsappClient = null;
-        }
-
-        const sessionPath = path.join(app.getPath('userData'), '.wwebjs_auth', 'session-electron-app-session');
+    ipcMain.handle('send-whatsapp-message', async (event, { numero, mensagem, clientId }) => {
         try {
-            if (fs.existsSync(sessionPath)) {
-                await fs.remove(sessionPath);
+            // Se tem clientId, usa cliente específico
+            if (clientId && whatsappClients[clientId]) {
+                const client = whatsappClients[clientId];
+                if (client.info) {
+                    await client.sendMessage(`${numero}@c.us`, mensagem);
+                    return { sucesso: true, dados: { status: 'enviado', clientId } };
+                }
             }
-        } catch (e) { console.error('[QR] Erro ao remover pasta de sessão:', e.message); }
-
-       whatsappClient = new Client({
-    authStrategy: new LocalAuth({ clientId: 'electron-app-session' }),
-    puppeteer: {
-        // A linha 'executablePath' foi REMOVIDA
-        headless: false, 
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    }
-});
-
-        whatsappClient.on('qr', async (qr) => {
-            try {
-                const qrDataURL = await qrcode.toDataURL(qr);
-                if (mainWindow) mainWindow.webContents.send('qr-code-data', qrDataURL);
-            } catch (error) { console.error('[QR] Erro ao gerar DataURL:', error.message); }
-        });
-        whatsappClient.on('ready', () => {
-            if (mainWindow) mainWindow.webContents.send('whatsapp-ready');
-        });
-        whatsappClient.on('message', async msg => {
-            const contact = await msg.getContact(); 
-            const number = msg.from.split('@')[0];
-            if (mainWindow) {
-                mainWindow.webContents.send('nova-mensagem-recebida', {
-                    texto: msg.body,
-                    name: contact.name || contact.pushname || number,
-                    number: number
-                });
+            
+            // Caso contrário, tenta API Cloud
+            if (WHATSAPP_TOKEN && !WHATSAPP_TOKEN.startsWith('TOKEN_DE_TESTE_')) {
+                const resultado = await enviarMensagemWhatsApp(numero, mensagem);
+                return { sucesso: true, dados: resultado };
             }
-        });
-
-        whatsappClient.initialize().catch(e => console.error('[QR] Erro de inicialização:', e.message));
-        return { sucesso: true, status: 'Fluxo de QR Code iniciado' };
-    });
-
-    // 5) Enviar Mensagem (Sua lógica)
-    ipcMain.handle('send-whatsapp-message', async (event, { numero, mensagem }) => {
-        try {
-            if (WHATSAPP_TOKEN && WHATSAPP_TOKEN.startsWith('TOKEN_DE_TESTE_')) {
-                return { sucesso: true, dados: { status: 'simulado' } };
-            }
-            if (whatsappClient && whatsappClient.info) {
-                await whatsappClient.sendMessage(`${numero}@c.us`, mensagem);
-                return { sucesso: true, dados: { status: 'enviado-qr' } };
-            }
-            const resultado = await enviarMensagemWhatsApp(numero, mensagem);
-            return { sucesso: true, dados: resultado };
+            
+            return { sucesso: false, erro: 'Nenhum cliente disponível' };
         } catch (erro) {
             return { sucesso: false, erro: erro.message };
         }
     });
-
-    // 6) Buscar Chats (Sua lógica - Cole seu código de 'chats.map' aqui)
-    ipcMain.handle('fetch-whatsapp-chats', async () => {
-        if (!whatsappClient || !whatsappClient.info) {
-            return { sucesso: false, erro: 'Cliente WhatsApp desconectado.' };
-        }
+    
+    // Enviar mensagem com mídia
+    ipcMain.handle('send-whatsapp-media', async (_event, { clientId, chatId, filePath, caption }) => {
         try {
-            const chats = await whatsappClient.getChats();
-            const conversasFormatadas = await Promise.all(chats.map(async (chat) => {
-                const idObj = chat.id || {};
-                const number = idObj.user || 'unknown';
-                let contact = null;
-                try { contact = await chat.getContact(); } catch (err) { /* ignore */ }
-                let profilePicUrl = '';
-                try {
-                    if (contact && typeof contact.getProfilePicUrl === 'function') {
-                        profilePicUrl = await contact.getProfilePicUrl();
-                    }
-                } catch (err) { /* ignore */ }
-                const name = (contact && (contact.name || contact.pushname)) || (chat.name || number);
-                return {
-                    id: idObj._serialized || number, name, number,
-                    isGroup: !!chat.isGroup,
-                    lastMessage: chat.lastMessage ? (chat.lastMessage.body || '') : '',
-                    profilePicUrl: profilePicUrl || ''
-                };
-            }));
-            return { sucesso: true, chats: conversasFormatadas };
-        } catch (e) {
-            return { sucesso: false, erro: e && e.message ? e.message : String(e) };
+            const client = whatsappClients.get(clientId);
+            if (!client) {
+                return { success: false, message: 'Cliente não conectado' };
+            }
+
+            const media = MessageMedia.fromFilePath(filePath);
+            await client.sendMessage(chatId, media, { caption: caption || '' });
+
+            logger.sucesso(`[${clientId}] Mídia enviada para ${chatId}`);
+            return { success: true };
+
+        } catch (erro) {
+            logger.erro('[Enviar Mídia] Erro:', erro.message);
+            return { success: false, message: erro.message };
         }
     });
 
-    // 7) Buscar Histórico Recente (Sua lógica)
-    ipcMain.handle('fetch-chat-history', async (event, number) => {
-        if (!whatsappClient || !whatsappClient.info) {
-            return { sucesso: false, erro: 'Cliente WhatsApp desconectado.' };
-        }
+    // Download de mídia recebida
+    ipcMain.handle('download-whatsapp-media', async (_event, { clientId, messageId }) => {
         try {
-            const chatId = `${number}@c.us`; 
-            const chat = await whatsappClient.getChatById(chatId);
-            if (!chat) return { sucesso: false, erro: 'Chat não encontrado.' };
+            const client = whatsappClients.get(clientId);
+            if (!client) {
+                return { success: false, message: 'Cliente não conectado' };
+            }
+
+            // Implemente a lógica de download conforme necessário
+            return { success: true };
+
+        } catch (erro) {
+            logger.erro('[Download Mídia] Erro:', erro.message);
+            return { success: false, message: erro.message };
+        }
+    });
+
+    // --- CHATS E HISTÓRICO ---
+    
+    ipcMain.handle('fetch-whatsapp-chats', async (event, clientId) => {
+        const client = clientId ? whatsappClients[clientId] : Object.values(whatsappClients)[0];
+        
+        if (!client || !client.info) {
+            return { sucesso: false, erro: 'Cliente não conectado' };
+        }
+        
+        try {
+            const chats = await client.getChats();
+            const conversasFormatadas = await Promise.all(
+                chats.map(async (chat) => {
+                    const number = chat.id.user || 'unknown';
+                    let contact = null;
+                    let profilePicUrl = '';
+                    
+                    try {
+                        contact = await chat.getContact();
+                        if (contact && typeof contact.getProfilePicUrl === 'function') {
+                            profilePicUrl = await contact.getProfilePicUrl();
+                        }
+                    } catch (err) {
+                        // Ignora erros de perfil
+                    }
+                    
+                    const name = contact?.name || contact?.pushname || chat.name || number;
+                    
+                    return {
+                        id: chat.id._serialized,
+                        name,
+                        number,
+                        isGroup: !!chat.isGroup,
+                        lastMessage: chat.lastMessage?.body || '',
+                        profilePicUrl: profilePicUrl || '',
+                        unreadCount: chat.unreadCount || 0
+                    };
+                })
+            );
             
-            const messages = await chat.fetchMessages({ limit: 20 });
+            return { sucesso: true, chats: conversasFormatadas };
+        } catch (erro) {
+            return { sucesso: false, erro: erro.message };
+        }
+    });
+    
+    ipcMain.handle('fetch-chat-history', async (event, { number, clientId }) => {
+        const client = clientId ? whatsappClients[clientId] : Object.values(whatsappClients)[0];
+        
+        if (!client || !client.info) {
+            return { sucesso: false, erro: 'Cliente não conectado' };
+        }
+        
+        try {
+            const chatId = `${number}@c.us`;
+            const chat = await client.getChatById(chatId);
+            
+            if (!chat) {
+                return { sucesso: false, erro: 'Chat não encontrado' };
+            }
+            
+            const messages = await chat.fetchMessages({ limit: 50 });
             const history = messages.map(msg => ({
                 texto: msg.body,
-                timestamp: new Date(msg.timestamp * 1000).toLocaleTimeString(),
-                sender: msg.fromMe ? 'Eu' : (msg.author ? msg.author.split('@')[0] : 'Cliente')
+                timestamp: new Date(msg.timestamp * 1000).toLocaleString('pt-BR'),
+                sender: msg.fromMe ? 'Eu' : (msg.author?.split('@')[0] || 'Cliente'),
+                fromMe: msg.fromMe,
+                hasMedia: msg.hasMedia
             })).reverse();
             
-            return { sucesso: true, history: history };
-        } catch (e) {
-            return { sucesso: false, erro: e.message || String(e) };
+            return { sucesso: true, history };
+        } catch (erro) {
+            return { sucesso: false, erro: erro.message };
         }
     });
-
-    // 8) Configurar Credenciais (Sua lógica)
+    
+    ipcMain.on('open-history-search-window', () => {
+        createHistoryWindow();
+    });
+    
+    ipcMain.handle('search-chat-history', async (event, filters) => {
+        // Implementação futura com banco de dados
+        return { 
+            sucesso: false, 
+            erro: 'Busca de histórico requer banco de dados' 
+        };
+    });
+    
+    // --- CONFIGURAÇÕES ---
+    
     ipcMain.handle('config-whatsapp-credentials', (event, { token, id }) => {
         WHATSAPP_TOKEN = token;
         PHONE_NUMBER_ID = id;
         return { sucesso: true, status: 'Credenciais atualizadas' };
     });
-
-    // 9) Abrir Nova Janela de QR Code
-    ipcMain.handle('open-new-qr-window', async (event) => {
-        const clientId = `session-${Date.now()}`; // ID único baseado no timestamp
-        createQRWindow(clientId);
-        return { sucesso: true, clientId };
-    });
-
-    // 10) Iniciar Conexão para Cliente Específico
-    ipcMain.handle('iniciar-qr-code-multiple', async (event, clientId) => {
-        try {
-            // Destrói cliente antigo se existir
-            if (whatsappClients[clientId]) {
-                try { 
-                    await whatsappClients[clientId].destroy(); 
-                } catch (e) { 
-                    console.warn(`[QR-${clientId}] Erro ao destruir:`, e.message); 
-                }
-            }
-
-            // Cria novo cliente
-            const client = new Client({
-                authStrategy: new LocalAuth({ clientId }),
-                puppeteer: {
-                    headless: true,
-                    args: ['--no-sandbox', '--disable-setuid-sandbox']
-                }
-            });
-
-            // Listener de QR Code
-            client.on('qr', async (qr) => {
-                try {
-                    const qrDataURL = await qrcode.toDataURL(qr);
-                    const targetWindow = qrWindows[clientId];
-                    if (targetWindow) {
-                        targetWindow.webContents.send('qr-code-data', qrDataURL);
-                    }
-                } catch (error) {
-                    console.error(`[QR-${clientId}] Erro ao gerar QR:`, error.message);
-                }
-            });
-
-            // Listener de Ready
-            client.on('ready', () => {
-                console.log(`[QR-${clientId}] Cliente conectado!`);
-                const targetWindow = qrWindows[clientId];
-                if (targetWindow) {
-                    targetWindow.webContents.send('whatsapp-ready', clientId);
-                }
-                // Notifica a janela principal
-                if (mainWindow) {
-                    mainWindow.webContents.send('new-client-ready', {
-                        clientId,
-                        number: client.info?.wid?.user || 'Desconhecido'
-                    });
-                }
-            });
-
-            // Listener de Mensagens
-            client.on('message', async (msg) => {
-                try {
-                    const contact = await msg.getContact();
-                    const number = msg.from.split('@')[0];
-                    if (mainWindow) {
-                        mainWindow.webContents.send('nova-mensagem-recebida', {
-                            texto: msg.body,
-                            name: contact.name || contact.pushname || number,
-                            number,
-                            clientId // 🆕 Identifica de qual cliente veio
-                        });
-                    }
-                } catch (err) {
-                    console.error(`[QR-${clientId}] Erro ao processar mensagem:`, err);
-                }
-            });
-
-            whatsappClients[clientId] = client;
-            client.initialize().catch(e => console.error(`[QR-${clientId}] Erro init:`, e));
-
-            return { sucesso: true, status: 'Conexão iniciada', clientId };
-        } catch (erro) {
-            return { sucesso: false, erro: erro.message };
-        }
-    });
-
-    // 11) Listar Clientes Conectados
-    ipcMain.handle('list-connected-clients', async () => {
-        const clients = Object.keys(whatsappClients).map(clientId => {
-            const client = whatsappClients[clientId];
-            return {
-                clientId,
-                isReady: !!client.info,
-                number: client.info?.wid?.user || 'Conectando...'
-            };
-        });
-        return { sucesso: true, clients };
-    });
-
-    // 12) Desconectar Cliente Específico
-    ipcMain.handle('disconnect-client', async (event, clientId) => {
-        try {
-            if (whatsappClients[clientId]) {
-                await whatsappClients[clientId].destroy();
-                delete whatsappClients[clientId];
-                
-                if (qrWindows[clientId]) {
-                    qrWindows[clientId].close();
-                }
-                
-                return { sucesso: true, message: 'Cliente desconectado' };
-            }
-            return { sucesso: false, erro: 'Cliente não encontrado' };
-        } catch (erro) {
-            return { sucesso: false, erro: erro.message };
-        }
-    });
-
-    // --- IPC PARA CHAT INTERNO ---
-    ipcMain.handle('internal-chat-send', (e, { from, texto }) => {
+    
+    // --- CHAT INTERNO ---
+    
+    ipcMain.handle('internal-chat-send', (event, { from, texto }) => {
         return sendInternalChatMessage(from, texto);
     });
-
+    
     ipcMain.handle('internal-chat-history', () => {
-        return { sucesso: true, history: internalChatHistory.slice(-100) };
+        return { 
+            sucesso: true, 
+            history: internalChatHistory.slice(-100) 
+        };
     });
-
-    // --- IPC PARA MODO DE TELA CHEIA ---
+    
+    // --- INTERFACE ---
+    
     ipcMain.on('set-fullscreen', (event, flag) => {
         const win = BrowserWindow.getFocusedWindow();
-        if (win) win.setFullScreen(flag);
+        if (win) {
+            win.setFullScreen(flag);
+        }
     });
-}); // <-- FIM DO BLOCO app.whenReady().then()
+
+    // Controle de notificações
+    ipcMain.handle('toggle-notifications', async (_event, ativo) => {
+        notificacoes.setAtivo(ativo);
+        return { success: true, ativo };
+    });
+
+    // Backups
+    ipcMain.handle('backup:run', async () => backups.runBackupNow());
+    ipcMain.handle('backup:list', async () => ({ success: true, files: await backups.listBackups() }));
+
+    // Atendimentos
+    ipcMain.handle('attend:register', async (_e, username) => atend.registrarAtendente(username));
+    ipcMain.handle('attend:set-status', async (_e, { username, status }) => atend.setStatus(username, status));
+    ipcMain.handle('attend:claim', async (_e, { username, clientId, chatId }) => atend.assumirChat(username, clientId, chatId));
+    ipcMain.handle('attend:release', async (_e, { username, clientId, chatId }) => atend.liberarChat(username, clientId, chatId));
+    ipcMain.handle('attend:get', async (_e, { clientId, chatId }) => atend.obterAtendimento(clientId, chatId));
+    ipcMain.handle('attend:list', async () => atend.listarAtendimentos());
+
+    // Relatórios
+    ipcMain.handle('report:export', async (_e, tipo) => relatorios.exportar(tipo));
+
+    // Tema
+    ipcMain.handle('theme:get', async () => ({ success: true, theme: await tema.getTheme() }));
+    ipcMain.handle('theme:set', async (_e, themeName) => tema.setTheme(themeName));
+}
 
 // =========================================================================
-// 5. EVENTOS GLOBAIS (FORA DO 'whenReady')
+// 9. INICIALIZAÇÃO DO APLICATIVO
 // =========================================================================
+
+app.whenReady().then(async () => {
+    configurarManipuladoresIPC();
+    
+    // Inicia com tela de login
+    createLoginWindow();
+    
+    // Configura backups e API
+    backups.scheduleBackups();
+    
+    startApi({
+        getClients: () => Array.from(whatsappClients.keys()),
+        listChats: async (clientId) => {
+            try {
+                const client = whatsappClients.get(clientId);
+                if (!client) return { success: false, chats: [], message: 'Cliente não conectado' };
+                const chats = await client.getChats();
+                return {
+                    success: true,
+                    chats: chats.map(c => ({ id: c.id._serialized, name: c.name || c.id.user, isGroup: c.isGroup }))
+                };
+            } catch (e) {
+                return { success: false, chats: [], message: e.message };
+            }
+        },
+        sendMessage: async ({ clientId, chatId, message }) => {
+            try {
+                const client = whatsappClients.get(clientId);
+                if (!client) return { success: false, message: 'Cliente não conectado' };
+                await client.sendMessage(chatId, message);
+                return { success: true };
+            } catch (e) {
+                return { success: false, message: e.message };
+            }
+        }
+    });
+});
+
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
         app.quit();
     }
 });
-// main.js (Adicionar no final do arquivo)
 
-// ATIVIDADE SENAC: Notificação ao finalizar 
-app.on('before-quit', () => {
-    if (Notification.isSupported()) {
-        new Notification({
-            title: 'Encerrando...', 
-            body: 'Salvando sua sessão. Obrigado por usar o Atendimento!', 
-            silent: true 
-        }).show();
+app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+        createLoginWindow();
     }
 });
+
+app.on('before-quit', async () => {
+    logger.info('=== Encerrando Aplicativo ===');
+    
+    // Fecha todos os clientes WhatsApp
+    for (const clientId in whatsappClients) {
+        try {
+            await whatsappClients[clientId].destroy();
+        } catch (erro) {
+            logger.erro(`Erro ao fechar ${clientId}:`, erro.message);
+        }
+    }
+    
+    // Notificação de saída
+    if (Notification.isSupported()) {
+        new Notification({
+            title: 'Encerrando...',
+            body: 'Salvando dados. Até logo!',
+            silent: true
+        }).show();
+    }
+    
+    // Fecha WebSockets
+    if (ws) ws.close();
+    if (internalWS) internalWS.close();
+});
+
+// =========================================================================
+// FIM DO ARQUIVO
+// =========================================================================

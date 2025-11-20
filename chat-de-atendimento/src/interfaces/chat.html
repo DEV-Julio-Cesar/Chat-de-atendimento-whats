@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Chat WhatsApp</title>
+  <style>
+  :root {
+    --bg: #efeae2; --panel:#f0f2f5; --text:#111; --muted:#667781; --accent:#00a884; --bubble:#fff; --sent:#d9fdd3;
+  }
+  [data-theme="dark"] {
+    --bg:#0b141a; --panel:#202c33; --text:#e9edef; --muted:#8696a0; --accent:#00a884; --bubble:#1f2c33; --sent:#005c4b;
+  }
+  body { background: var(--bg); color: var(--text); }
+  .sidebar { background: var(--panel); }
+  .chat-area { background: var(--bg); }
+  .message.received { background: var(--bubble); }
+  .message.sent { background: var(--sent); }
+  .chat-header { background: var(--panel); }
+  .input-area { background: var(--panel); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Lista de Chats -->
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <h2 id="clientName">WhatsApp</h2>
+        <button onclick="recarregarChats()" style="background:transparent;border:none;color:#fff;cursor:pointer;">🔄</button>
+      </div>
+      <div class="search-box">
+        <input id="searchInput" placeholder="Buscar conversa..." />
+      </div>
+      <div class="chat-list" id="chatList">
+        <div style="padding:20px;text-align:center;color:#667781;">Carregando...</div>
+      </div>
+    </div>
+
+    <!-- Área de Conversa -->
+    <div class="chat-area" id="chatArea">
+      <div class="empty-state">Selecione uma conversa para começar</div>
+    </div>
+  </div>
+
+  <script>
+  // Tema
+  (async () => {
+    const t = await window.electronAPI.getTheme();
+    document.documentElement.setAttribute('data-theme', t.theme || 'light');
+  })();
+
+  let currentClientId = null;
+  let currentChatId = null;
+  let allChats = [];
+  const currentUser = 'admin'; // substitua pelo usuário logado se tiver contexto
+
+  // Recebe clientId
+  window.chatAPI.aoDefinirCliente((clientId) => {
+    currentClientId = clientId;
+    document.getElementById('clientName').textContent = `WhatsApp (${clientId})`;
+    carregarChats();
+  });
+
+  // Recebe nova mensagem
+  window.chatAPI.aoNovaMensagem((data) => {
+    if (data.clientId !== currentClientId) return;
+    
+    // Atualiza lista de chats
+    carregarChats();
+    
+    // Se é do chat atual, adiciona na conversa
+    if (data.chatId === currentChatId) {
+      adicionarMensagem(data.mensagem, false);
+    }
+  });
+
+  async function carregarChats() {
+    const res = await window.chatAPI.listarChats(currentClientId);
+    if (res.success) {
+      allChats = res.chats;
+      renderizarChats(allChats);
+    }
+  }
+
+  function renderizarChats(chats) {
+    const lista = document.getElementById('chatList');
+    
+    if (chats.length === 0) {
+      lista.innerHTML = '<div style="padding:20px;text-align:center;color:#667781;">Nenhuma conversa</div>';
+      return;
+    }
+
+    lista.innerHTML = chats.map(chat => `
+      <div class="chat-item ${chat.id === currentChatId ? 'active' : ''}" onclick="abrirChat('${chat.id}', '${chat.name}')">
+        <div class="chat-avatar">${chat.name[0].toUpperCase()}</div>
+        <div class="chat-info">
+          <div class="chat-name">${chat.name}</div>
+          <div class="chat-preview">...</div>
+        </div>
+        <div class="chat-meta">
+          ${chat.unreadCount > 0 ? `<div class="chat-badge">${chat.unreadCount}</div>` : ''}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  async function abrirChat(chatId, chatName) {
+    currentChatId = chatId;
+    renderizarChats(allChats);
+
+    const chatArea = document.getElementById('chatArea');
+    // Obter status de atendimento
+    const at = await window.electronAPI.attend.get({ clientId: currentClientId, chatId: currentChatId });
+    const responsavel = at?.atendimento?.username || '—';
+
+    chatArea.innerHTML = `
+      <div class="chat-header">
+        <div class="avatar">${chatName[0].toUpperCase()}</div>
+        <div class="info">
+          <div class="name">${chatName}</div>
+          <div class="status">Responsável: <strong id="respNome">${responsavel}</strong></div>
+        </div>
+        <div>
+          <button id="btnAssumir" style="padding:8px 12px;border:0;border-radius:6px;background:var(--accent);color:#fff;cursor:pointer">Assumir</button>
+          <button id="btnLiberar" style="padding:8px 12px;border:0;border-radius:6px;background:#ef4444;color:#fff;cursor:pointer">Liberar</button>
+        </div>
+      </div>
+      <div class="messages" id="messages"></div>
+      <div class="input-area">
+        <input id="messageInput" placeholder="Digite uma mensagem" />
+        <button onclick="enviarMensagem()">Enviar</button>
+      </div>
+    `;
+
+    document.getElementById('btnAssumir').onclick = async () => {
+      const r = await window.electronAPI.attend.claim({ username: currentUser, clientId: currentClientId, chatId: currentChatId });
+      alert(r.message || (r.success ? 'Atendimento assumido' : 'Falha ao assumir'));
+      const at2 = await window.electronAPI.attend.get({ clientId: currentClientId, chatId: currentChatId });
+      document.getElementById('respNome').textContent = at2?.atendimento?.username || '—';
+    };
+    document.getElementById('btnLiberar').onclick = async () => {
+      const r = await window.electronAPI.attend.release({ username: currentUser, clientId: currentClientId, chatId: currentChatId });
+      alert(r.message || (r.success ? 'Atendimento liberado' : 'Falha ao liberar'));
+      const at2 = await window.electronAPI.attend.get({ clientId: currentClientId, chatId: currentChatId });
+      document.getElementById('respNome').textContent = at2?.atendimento?.username || '—';
+    };
+
+    // Carrega histórico
+    const res = await window.chatAPI.carregarHistorico(currentClientId, chatId);
+    if (res.success) {
+      res.mensagens.forEach(msg => {
+        adicionarMensagem(msg, msg.fromMe);
+      });
+    }
+
+    // Enter para enviar
+    document.getElementById('messageInput').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') enviarMensagem();
+    });
+  }
+
+  function adicionarMensagem(msg, enviada) {
+    const messagesDiv = document.getElementById('messages');
+    if (!messagesDiv) return;
+
+    const div = document.createElement('div');
+    div.className = `message ${enviada ? 'sent' : 'received'}`;
+    div.innerHTML = `
+      <div class="message-body">${msg.body || ''}</div>
+      <div class="message-time">${new Date(msg.timestamp).toLocaleTimeString()}</div>
+    `;
+    messagesDiv.appendChild(div);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  }
+
+  async function enviarMensagem() {
+    const input = document.getElementById('messageInput');
+    const texto = input.value.trim();
+    if (!texto || !currentChatId) return;
+
+    const res = await window.chatAPI.enviarMensagem(currentClientId, currentChatId, texto);
+    if (res.success) {
+      adicionarMensagem({ body: texto, timestamp: Date.now() }, true);
+      input.value = '';
+    } else {
+      alert('Erro ao enviar: ' + res.message);
+    }
+  }
+
+  function recarregarChats() {
+    carregarChats();
+  }
+
+  // Busca
+  document.getElementById('searchInput').addEventListener('input', (e) => {
+    const termo = e.target.value.toLowerCase();
+    const filtrados = allChats.filter(chat => 
+      chat.name.toLowerCase().includes(termo)
+    );
+    renderizarChats(filtrados);
+  });
+  </script>
+</body>
+</html>

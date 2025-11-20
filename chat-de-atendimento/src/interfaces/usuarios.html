@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Lista de Usuários</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background:#f4f6f8; }
+    header { background:#1f2937; color:#fff; padding:16px 24px; }
+    header h1 { margin:0; font-size:18px; }
+    .wrap { padding:20px; max-width:1100px; margin:0 auto; }
+    .cards { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; margin-bottom:16px; }
+    .card { background:#fff; border-radius:8px; padding:16px; box-shadow:0 2px 10px rgba(0,0,0,.06); }
+    .card h3 { margin:0 0 8px 0; font-size:14px; color:#6b7280; font-weight:600; }
+    .card .num { font-size:28px; font-weight:700; color:#111827; }
+    .controls { display:flex; gap:8px; margin-bottom:12px; flex-wrap: wrap; }
+    .controls input, .controls select { padding:10px; border:1px solid #d1d5db; border-radius:6px; }
+    .table { background:#fff; border-radius:8px; box-shadow:0 2px 10px rgba(0,0,0,.06); overflow:auto; }
+    table { border-collapse:collapse; width:100%; }
+    th, td { padding:10px 12px; border-bottom:1px solid #eee; text-align:left; font-size:14px; }
+    th { background:#f9fafb; color:#374151; position:sticky; top:0; z-index:1; cursor:pointer; user-select:none; }
+    th.sortable { padding-right:22px; position: relative; }
+    th.sortable .arrow { position:absolute; right:8px; top:50%; transform: translateY(-50%); font-size:11px; color:#6b7280; }
+    th.active { color:#111827; }
+    .tag { padding:4px 8px; border-radius:999px; font-size:12px; font-weight:600; }
+    .ativo { background:#dcfce7; color:#166534; }
+    .inativo { background:#fee2e2; color:#991b1b; }
+    .row-actions { display:flex; gap:6px; }
+    button { padding:8px 10px; border:0; border-radius:6px; cursor:pointer; font-weight:600; }
+    .b-ativar { background:#10b981; color:#fff; }
+    .b-desativar { background:#f59e0b; color:#fff; }
+    .b-remover { background:#ef4444; color:#fff; }
+    .muted { color:#6b7280; }
+    .warn { color:#b45309; }
+    .empty { text-align:center; color:#6b7280; padding:24px; }
+
+    .pager { display:flex; align-items:center; gap:8px; justify-content:flex-end; margin-top:10px; }
+    .pager button { background:#111827; color:#fff; }
+    .pager .info { color:#374151; font-size:13px; }
+  </style>
+</head>
+<body>
+  <header><h1>Lista de Usuários</h1></header>
+  <div class="wrap">
+    <div class="cards">
+      <div class="card"><h3>Total</h3><div class="num" id="c_total">0</div></div>
+      <div class="card"><h3>Ativos</h3><div class="num" id="c_ativos">0</div></div>
+      <div class="card"><h3>Inativos</h3><div class="num" id="c_inativos">0</div></div>
+    </div>
+
+    <div class="controls">
+      <input id="filtro" placeholder="Filtrar por usuário ou e-mail" style="flex:1" />
+      <select id="filtroStatus" title="Status">
+        <option value="todos">Todos</option>
+        <option value="ativos">Ativos</option>
+        <option value="inativos">Inativos</option>
+      </select>
+      <select id="pageSize" title="Itens por página">
+        <option>10</option>
+        <option>20</option>
+        <option>50</option>
+        <option>100</option>
+      </select>
+      <button id="btnRecarregar">Recarregar</button>
+    </div>
+
+    <div class="table">
+      <table>
+        <thead>
+          <tr>
+            <th class="sortable" data-key="username">Usuário <span class="arrow">↕</span></th>
+            <th class="sortable" data-key="email">E-mail <span class="arrow">↕</span></th>
+            <th class="sortable" data-key="role">Perfil <span class="arrow">↕</span></th>
+            <th class="sortable" data-key="ativo">Status <span class="arrow">↕</span></th>
+            <th class="sortable" data-key="criadoEm">Criado <span class="arrow">↕</span></th>
+            <th class="sortable" data-key="ultimoLogin">Último Login <span class="arrow">↕</span></th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr><td colspan="7" class="empty">Carregando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="pager">
+      <div class="info" id="pagerInfo">Página 1 de 1</div>
+      <button id="prev">Anterior</button>
+      <button id="next">Próxima</button>
+    </div>
+
+    <p class="muted warn" style="margin-top:8px">Observação: não é possível remover ou desativar o usuário admin.</p>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let lista = [];
+    let page = 1;
+    let size = 10;
+    let sortBy = 'username';
+    let sortDir = 'asc'; // 'asc' | 'desc'
+
+    function fmtData(iso) {
+      if (!iso) return '-';
+      const d = new Date(iso);
+      return d.toLocaleString();
+    }
+
+    function pintarContadores() {
+      const total = lista.length;
+      const ativos = lista.filter(u => u.ativo !== false).length;
+      const inativos = total - ativos;
+      $('c_total').textContent = total;
+      $('c_ativos').textContent = ativos;
+      $('c_inativos').textContent = inativos;
+    }
+
+    function aplicaFiltrosBase() {
+      const txt = $('filtro').value.toLowerCase();
+      const status = $('filtroStatus').value;
+
+      return lista.filter(u => {
+        const okTexto = [u.username, u.email].join(' ').toLowerCase().includes(txt);
+        const ativo = u.ativo !== false;
+        const okStatus =
+          status === 'todos' ||
+          (status === 'ativos' && ativo) ||
+          (status === 'inativos' && !ativo);
+        return okTexto && okStatus;
+      });
+    }
+
+    function compare(a, b, key) {
+      const va = key === 'ativo' ? (a.ativo !== false ? 1 : 0)
+        : key === 'criadoEm' || key === 'ultimoLogin' ? (a[key] ? new Date(a[key]).getTime() : 0)
+        : (a[key] ?? '').toString().toLowerCase();
+
+      const vb = key === 'ativo' ? (b.ativo !== false ? 1 : 0)
+        : key === 'criadoEm' || key === 'ultimoLogin' ? (b[key] ? new Date(b[key]).getTime() : 0)
+        : (b[key] ?? '').toString().toLowerCase();
+
+      if (va < vb) return -1;
+      if (va > vb) return 1;
+      return 0;
+    }
+
+    function getFilteredSortedList() {
+      const base = aplicaFiltrosBase();
+      base.sort((a, b) => {
+        const r = compare(a, b, sortBy);
+        return sortDir === 'asc' ? r : -r;
+      });
+      return base;
+    }
+
+    function updatePager(totalFiltered) {
+      const totalPages = Math.max(1, Math.ceil(totalFiltered / size));
+      if (page > totalPages) page = totalPages;
+      $('pagerInfo').textContent = `Página ${page} de ${totalPages}`;
+      $('prev').disabled = page <= 1;
+      $('next').disabled = page >= totalPages;
+    }
+
+    function renderHeaderSortState() {
+      document.querySelectorAll('th.sortable').forEach(th => {
+        th.classList.remove('active');
+        th.querySelector('.arrow').textContent = '↕';
+      });
+      const active = document.querySelector(`th.sortable[data-key="${sortBy}"]`);
+      if (active) {
+        active.classList.add('active');
+        active.querySelector('.arrow').textContent = sortDir === 'asc' ? '↑' : '↓';
+      }
+    }
+
+    function render() {
+      pintarContadores();
+      const dados = getFilteredSortedList();
+      updatePager(dados.length);
+      renderHeaderSortState();
+
+      const tb = $('tbody');
+      tb.innerHTML = '';
+
+      const start = (page - 1) * size;
+      const chunk = dados.slice(start, start + size);
+
+      if (chunk.length === 0) {
+        tb.innerHTML = '<tr><td colspan="7" class="empty">Nenhum usuário encontrado</td></tr>';
+        return;
+      }
+
+      for (const u of chunk) {
+        const tr = document.createElement('tr');
+
+        tr.innerHTML = `
+          <td>${u.username}</td>
+          <td class="muted">${u.email || '-'}</td>
+          <td>${u.role || 'atendente'}</td>
+          <td>${(u.ativo !== false)
+              ? '<span class="tag ativo">Ativo</span>'
+              : '<span class="tag inativo">Inativo</span>'}</td>
+          <td class="muted">${fmtData(u.criadoEm)}</td>
+          <td class="muted">${fmtData(u.ultimoLogin)}</td>
+          <td>
+            <div class="row-actions">
+              ${u.username.toLowerCase() === 'admin'
+                ? ''
+                : (u.ativo !== false
+                    ? '<button class="b-desativar" data-act="off">Desativar</button>'
+                    : '<button class="b-ativar" data-act="on">Ativar</button>')
+              }
+              ${u.username.toLowerCase() === 'admin'
+                ? ''
+                : '<button class="b-remover" data-act="rm">Remover</button>'}
+            </div>
+          </td>
+        `;
+
+        tr.querySelectorAll('button').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const act = btn.getAttribute('data-act');
+            if (act === 'rm') {
+              if (!confirm(`Remover usuário ${u.username}?`)) return;
+              const r = await window.usuariosAPI.remover(u.username);
+              alert(r.message);
+              await carregar(true);
+            } else if (act === 'on' || act === 'off') {
+              const ativo = act === 'on';
+              const r = await window.usuariosAPI.setAtivo(u.username, ativo);
+              alert(r.message);
+              await carregar(true);
+            }
+          });
+        });
+
+        tb.appendChild(tr);
+      }
+    }
+
+    async function carregar(keepPage = false) {
+      const prevPage = page;
+      const [{ users }] = await Promise.all([window.usuariosAPI.listar()]);
+      lista = users || [];
+      if (!keepPage) page = 1;
+      else page = prevPage;
+      render();
+    }
+
+    // Eventos UI
+    $('filtro').addEventListener('input', () => { page = 1; render(); });
+    $('filtroStatus').addEventListener('change', () => { page = 1; render(); });
+    $('pageSize').addEventListener('change', () => { size = parseInt($('pageSize').value, 10); page = 1; render(); });
+    $('btnRecarregar').addEventListener('click', () => carregar(true));
+    $('prev').addEventListener('click', () => { if (page > 1) { page--; render(); } });
+    $('next').addEventListener('click', () => { page++; render(); });
+
+    document.querySelectorAll('th.sortable').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.getAttribute('data-key');
+        if (sortBy === key) {
+          sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortBy = key;
+          sortDir = 'asc';
+        }
+        render();
+      });
+    });
+
+    // Inicial
+    size = parseInt($('pageSize').value, 10);
+    carregar();
+  </script>
+</body>
+</html>

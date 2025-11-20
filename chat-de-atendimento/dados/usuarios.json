@@ -1,0 +1,11 @@
+{
+  "usuarios": [
+    {
+      "username": "admin",
+      "password": "admin",
+      "role": "admin",
+      "ativo": true,
+      "criadoEm": "2025-11-20T18:19:01.247Z"
+    }
+  ]
+}
