@@ -2,10 +2,21 @@
   "usuarios": [
     {
       "username": "admin",
-      "password": "admin",
+      "password": "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
       "role": "admin",
       "ativo": true,
-      "criadoEm": "2025-11-20T18:19:01.247Z"
+      "criadoEm": "2025-11-20T18:19:01.247Z",
+      "email": "admin@sistema.com",
+      "ultimoLogin": "2025-11-21T04:39:03.553Z"
+    },
+    {
+      "username": "login_1763697555904",
+      "email": "1763697555904@x.com",
+      "role": "atendente",
+      "password": "$2a$10$SnSEqdJsHusoVXz3yG3H.uxvZkRTjvMIZkl/rVPDHnhVeV3uHVpRG",
+      "ativo": true,
+      "criadoEm": "2025-11-21T03:59:15.975Z",
+      "ultimoLogin": null
     }
   ]
 }

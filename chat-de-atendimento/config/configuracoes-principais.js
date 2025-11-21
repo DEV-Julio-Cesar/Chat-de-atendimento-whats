@@ -87,7 +87,7 @@ const configuracoes = {
     // CONFIGURAÇÕES DE ARQUIVOS
     // =====================================================
     arquivos: {
-        usuarios: 'dados/usuarios-cadastrados.json',
+        usuarios: 'dados/usuarios.json',
         configuracoes: 'dados/configuracoes-sistema.json',
         logs: 'logs/aplicativo.log',
         historico: 'dados/historico-conversas.json',

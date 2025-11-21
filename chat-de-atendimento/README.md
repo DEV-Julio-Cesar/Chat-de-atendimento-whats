@@ -4,6 +4,31 @@
 
 ---
 
+## ⚡ Comandos Rápidos
+
+```powershell
+# 1) Usuário de teste (admin/admin)
+npm run seed:admin
+
+# 2) Servidores (opcional, em terminais separados)
+npm run ws
+npm run chat:interno
+
+# 3) Iniciar o aplicativo
+npm start
+
+# 4) Testes rápidos
+npm run teste:login
+npm run teste:cadastro
+```
+
+**📚 Documentação Completa:**
+- 📖 `docs/COMANDOS.md` - Todos os comandos disponíveis
+- 🏗️ `docs/ESTRUTURA.md` - Arquitetura do projeto
+- 🧪 `docs/TESTE-WHATSAPP.md` - **Guia de teste da integração WhatsApp**
+
+---
+
 ## 📋 ÍNDICE
 
 - [📖 Sobre o Projeto](#-sobre-o-projeto)
@@ -16,6 +41,7 @@
 - [🔧 Desenvolvimento](#-desenvolvimento)
 - [📚 API e Documentação](#-api-e-documentação)
 - [🤝 Contribuição](#-contribuição)
+ - [🧑‍💻 Usuário de Teste](#-usuário-de-teste)
 
 ---
 
@@ -63,19 +89,13 @@ O **Chat de Atendimento WhatsApp** é uma aplicação desktop desenvolvida em **
 chat-de-atendimento/
 │
 ├── 📁 src/                          # Código fonte principal
-│   ├── 📁 principal/                # Módulo principal da aplicação
-│   │   └── aplicativo-principal.js  # Arquivo principal do Electron
-│   │
-│   ├── 📁 autenticacao/            # Sistema de login e usuários
-│   │   ├── validador-credenciais.js # Validação de login
-│   │   ├── gerenciador-usuarios.js  # CRUD de usuários
-│   │   └── users.js                 # Base de usuários (legado)
+│   ├── 📁 aplicacao/               # Regras de negócio e serviços
 │   │
 │   ├── 📁 whatsapp/                # Integração WhatsApp
-│   │   ├── servidor-websocket.js   # Servidor principal
-│   │   ├── servidor-chat-interno.js # Chat entre atendentes
-│   │   ├── websocket_server.js     # Servidor legado
-│   │   └── internal-chat-server.js # Chat interno legado
+│   │   ├── servidor-websocket.js    # Servidor principal (canônico)
+│   │   ├── servidor-chat-interno.js # Chat entre atendentes (canônico)
+│   │   ├── websocket_server.js      # Proxy para servidor canônico
+│   │   └── internal-chat-server.js  # Proxy para servidor canônico
 │   │
 │   ├── 📁 interfaces/              # Arquivos de interface
 │   │   ├── preload-principal.js    # Ponte IPC principal
@@ -95,7 +115,7 @@ chat-de-atendimento/
 │   └── configuracoes-principais.js # Arquivo central de configs
 │
 ├── 📁 dados/                       # Armazenamento de dados
-│   ├── usuarios-cadastrados.json   # Base de usuários
+│   ├── usuarios.json               # Base de usuários (canônica)
 │   ├── historico-conversas.json    # Histórico de chats
 │   └── configuracoes-sistema.json  # Configs salvas
 │
@@ -110,6 +130,8 @@ chat-de-atendimento/
 ├── package-lock.json               # Lock das dependências
 └── README.md                       # Esta documentação
 ```
+
+Para uma visão didática e atualizada da arquitetura e responsabilidades de cada pasta, consulte `docs/ESTRUTURA.md`.
 
 ---
 
@@ -189,10 +211,10 @@ npm run build:linux
 ### 1️⃣ Primeiro Acesso
 
 1. **Execute o aplicativo** com `npm start`
-2. **Faça login** com um dos usuários padrão:
-   - **Usuário:** `admin` | **Senha:** `1234`
-   - **Usuário:** `supervisor` | **Senha:** `senha123`
-   - **Usuário:** `koldri` | **Senha:** `13051987`
+2. **(Opcional) Popular usuário de teste:**
+    - Rode `npm run seed:admin` para garantir o usuário `admin` com senha `admin` nas bases locais
+3. **Faça login** com:
+    - **Usuário:** `admin` | **Senha:** `admin`
 
 ### 2️⃣ Cadastrar Novos Usuários
 
@@ -282,6 +304,13 @@ node src/whatsapp/servidor-websocket.js
 node src/whatsapp/servidor-chat-interno.js
 ```
 
+Também disponível via scripts npm:
+
+```powershell
+npm run ws
+npm run chat:interno
+```
+
 ### 🐛 Debug
 
 1. **Ative o modo debug** em `config/configuracoes-principais.js`
@@ -291,6 +320,18 @@ node src/whatsapp/servidor-chat-interno.js
 ### 🔍 Estrutura de Logs
 
 ```
+
+---
+
+## 🧑‍💻 Usuário de Teste
+
+- Para criar/atualizar o usuário de testes, execute:
+
+```powershell
+npm run seed:admin
+```
+
+- Isso garante o usuário `admin/admin` em `dados/usuarios.json` (usado pela validação de login) e remove arquivos legados de usuários, mantendo a base unificada.
 logs/
 ├── aplicativo.log          # Log principal
 ├── erro-{data}.log         # Logs de erro

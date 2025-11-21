@@ -498,11 +498,17 @@ async function inicializarClienteWhatsApp(clientId) {
         });
 
         // Evento: QR Code gerado
-        client.on('qr', (qr) => {
+        client.on('qr', async (qr) => {
             logger.info(`[${clientId}] QR Code gerado`);
             const qrWindow = qrWindows.get(clientId);
             if (qrWindow && !qrWindow.isDestroyed()) {
-                qrWindow.webContents.send('qr-code-data', qr);
+                try {
+                    // Converte o QR para imagem DataURL
+                    const qrDataURL = await qrcode.toDataURL(qr);
+                    qrWindow.webContents.send('qr-code-data', qrDataURL);
+                } catch (erro) {
+                    logger.erro(`[${clientId}] Erro ao gerar QR Code:`, erro.message);
+                }
             }
         });
 
@@ -513,6 +519,12 @@ async function inicializarClienteWhatsApp(clientId) {
 
             // Notificação
             notificacoes.notificarClienteConectado(clientId);
+
+            // Notifica janela QR específica
+            const qrWindow = qrWindows.get(clientId);
+            if (qrWindow && !qrWindow.isDestroyed()) {
+                qrWindow.webContents.send('whatsapp-ready', clientId);
+            }
 
             BrowserWindow.getAllWindows().forEach(win => {
                 if (!win.isDestroyed()) {
@@ -1007,8 +1019,18 @@ function configurarManipuladoresIPC() {
     ipcMain.handle('open-new-qr-window', async () => {
         const clientId = `client_${Date.now()}`;
         createQRWindow(clientId);
-        await inicializarClienteWhatsApp(clientId);
         return { success: true, clientId };
+    });
+
+    // Iniciar conexão WhatsApp
+    ipcMain.handle('start-whatsapp-connection', async (_event, clientId) => {
+        try {
+            const result = await inicializarClienteWhatsApp(clientId);
+            return result;
+        } catch (erro) {
+            logger.erro('[WhatsApp] Erro ao iniciar conexão:', erro.message);
+            return { success: false, message: erro.message };
+        }
     });
 
     // Listar clientes conectados

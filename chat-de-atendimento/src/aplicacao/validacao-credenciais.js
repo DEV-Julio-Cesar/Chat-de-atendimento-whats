@@ -3,6 +3,8 @@
 // =========================================================================
 
 const crypto = require('crypto');
+let bcrypt;
+try { bcrypt = require('bcryptjs'); } catch { bcrypt = null; }
 const fs = require('fs-extra');
 const path = require('path');
 const logger = require('../infraestrutura/logger');
@@ -48,26 +50,45 @@ async function validarCredenciais(username, password) {
     try {
         await garantirArquivo();
         const dados = await fs.readJson(USERS_FILE);
-        const passwordHash = hashPassword(password);
-        
         const usuario = dados.usuarios.find(
-            u => u.username.toLowerCase() === username.toLowerCase() && u.password === passwordHash
+            u => u.username.toLowerCase() === username.toLowerCase()
         );
-        
+
         if (!usuario) {
             logger.aviso(`[Login] Tentativa falha: ${username}`);
             return false;
         }
-        
+
         if (usuario.ativo === false) {
             logger.aviso(`[Login] Usuário inativo: ${username}`);
             return false;
         }
-        
+
+        // Verifica senha: suporta bcrypt ou SHA-256 (retrocompat)
+        const senhaCorreta = async () => {
+            const stored = usuario.password || '';
+            const looksBcrypt = typeof stored === 'string' && stored.startsWith('$2');
+            if (looksBcrypt && bcrypt) {
+                try {
+                    return await bcrypt.compare(password, stored);
+                } catch {
+                    // fallback para SHA-256
+                }
+            }
+            // Fallback e retrocompatibilidade com SHA-256
+            return stored === hashPassword(password);
+        };
+
+        const ok = await senhaCorreta();
+        if (!ok) {
+            logger.aviso(`[Login] Tentativa falha: ${username}`);
+            return false;
+        }
+
         // Atualiza último login
         usuario.ultimoLogin = new Date().toISOString();
         await fs.writeJson(USERS_FILE, dados, { spaces: 2 });
-        
+
         logger.sucesso(`[Login] Sucesso: ${username}`);
         return true;
         

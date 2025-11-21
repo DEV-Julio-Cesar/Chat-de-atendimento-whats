@@ -1,0 +1,78 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "App: Start (Normal)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "App: Start (Dev)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "preLaunchTask": "Servers: Start All"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Help: Commands",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "help"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Seed: Admin",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "seed:admin"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "WS: Start",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "ws"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Chat Interno: Start",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "chat:interno"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Test: Login",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "teste:login"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Test: Cadastro",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "teste:cadastro"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ]
+}

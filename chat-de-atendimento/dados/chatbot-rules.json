@@ -1,0 +1,60 @@
+{
+  "ativo": true,
+  "horarioAtendimento": {
+    "inicio": "08:00",
+    "fim": "18:00",
+    "diasSemana": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "mensagemBoasVindas": "Olá! Bem-vindo ao nosso atendimento. Como posso ajudar?",
+  "mensagemForaHorario": "No momento estamos fora do horário de atendimento. Retornaremos em breve!",
+  "palavrasChave": [
+    {
+      "palavras": [
+        "oi",
+        "olá",
+        "ola",
+        "bom dia",
+        "boa tarde",
+        "boa noite"
+      ],
+      "resposta": "Olá! Como posso ajudá-lo hoje?"
+    },
+    {
+      "palavras": [
+        "preço",
+        "preco",
+        "valor",
+        "quanto custa"
+      ],
+      "resposta": "Para informações sobre preços, por favor aguarde que um atendente irá lhe responder em breve."
+    },
+    {
+      "palavras": [
+        "horário",
+        "horario",
+        "funcionamento",
+        "atendimento"
+      ],
+      "resposta": "Nosso horário de atendimento é de segunda a sexta, das 8h às 18h."
+    },
+    {
+      "palavras": [
+        "obrigado",
+        "obrigada",
+        "valeu",
+        "agradeco"
+      ],
+      "resposta": "Por nada! Estamos à disposição! 😊"
+    }
+  ],
+  "respostasPadrao": {
+    "primeiroContato": "Olá! Seja bem-vindo(a)! Em que posso ajudá-lo(a)?",
+    "naoEntendi": "Desculpe, não entendi sua mensagem. Um atendente irá respondê-lo em breve."
+  }
+}

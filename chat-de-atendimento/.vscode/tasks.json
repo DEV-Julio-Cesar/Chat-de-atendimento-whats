@@ -1,0 +1,94 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Help: Commands",
+			"type": "shell",
+			"command": "npm",
+			"args": ["run", "help"],
+			"isBackground": false,
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		},
+		{
+			"label": "App: Start",
+			"type": "shell",
+			"command": "npm",
+			"args": ["start"],
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		},
+		{
+			"label": "Seed: Admin",
+			"type": "shell",
+			"command": "npm",
+			"args": ["run", "seed:admin"],
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		},
+		{
+			"label": "WS: Start",
+			"type": "shell",
+			"command": "npm",
+			"args": ["run", "ws"],
+			"isBackground": true,
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		},
+		{
+			"label": "Chat Interno: Start",
+			"type": "shell",
+			"command": "npm",
+			"args": ["run", "chat:interno"],
+			"isBackground": true,
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		},
+		{
+			"label": "Servers: Start All",
+			"dependsOn": [
+				"WS: Start",
+				"Chat Interno: Start"
+			],
+			"dependsOrder": "parallel",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: Login",
+			"type": "shell",
+			"command": "npm",
+			"args": ["run", "teste:login"],
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		},
+		{
+			"label": "Test: Cadastro",
+			"type": "shell",
+			"command": "npm",
+			"args": ["run", "teste:cadastro"],
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		}
+	]
+}
