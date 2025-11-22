@@ -1,0 +1,107 @@
+{
+  "app": {
+    "name": "Chat de Atendimento WhatsApp",
+    "version": "1.0.0",
+    "port": 3333,
+    "environment": "production"
+  },
+  "whatsapp": {
+    "maxClients": 10,
+    "sessionPath": ".wwebjs_auth",
+    "qrTimeout": 60000,
+    "messageQueueMaxSize": 1000,
+    "retryAttempts": 3,
+    "messageDelay": 1000
+  },
+  "api": {
+    "rateLimit": {
+      "general": {
+        "maxRequests": 100,
+        "windowMs": 60000
+      },
+      "auth": {
+        "maxRequests": 5,
+        "windowMs": 300000
+      },
+      "messages": {
+        "maxRequests": 50,
+        "windowMs": 60000
+      }
+    },
+    "cors": {
+      "enabled": true,
+      "origins": [
+        "*"
+      ]
+    },
+    "enabled": true,
+    "port": 3333,
+    "corsEnabled": true,
+    "timeout": 30000
+  },
+  "cache": {
+    "enabled": true,
+    "defaultTTL": 60000,
+    "chats": {
+      "ttl": 30000,
+      "enabled": true
+    },
+    "contacts": {
+      "ttl": 300000,
+      "enabled": true
+    },
+    "messages": {
+      "enabled": false,
+      "ttl": 0
+    }
+  },
+  "circuitBreaker": {
+    "failureThreshold": 5,
+    "successThreshold": 2,
+    "timeout": 60000,
+    "resetTimeout": 30000
+  },
+  "security": {
+    "passwordMinLength": 8,
+    "requireStrongPassword": true,
+    "sessionTimeout": 3600000,
+    "maxLoginAttempts": 5,
+    "lockoutDuration": 900000
+  },
+  "logging": {
+    "level": "info",
+    "console": true,
+    "file": true,
+    "maxFileSize": 10485760,
+    "maxFiles": 30,
+    "maxSize": "10m"
+  },
+  "monitoring": {
+    "enabled": true,
+    "metricsPort": 3333,
+    "healthCheckInterval": 30000,
+    "performanceMonitoring": true,
+    "metricsEnabled": true,
+    "healthCheckEnabled": true,
+    "eventLoopMonitoring": true
+  },
+  "backup": {
+    "enabled": true,
+    "interval": 86400000,
+    "maxBackups": 7,
+    "includeChats": false,
+    "path": "./backups",
+    "retention": 30
+  },
+  "websocket": {
+    "externalUrl": "ws://localhost:8080",
+    "internalUrl": "ws://localhost:9090",
+    "reconnectInterval": 5000,
+    "pingInterval": 30000
+  },
+  "database": {
+    "usersPath": "./dados/usuarios-cadastrados.json",
+    "auditLogPath": "./dados/auditoria.log",
+    "featureFlagsPath": "./dados/feature-flags.json"
+  }
+}

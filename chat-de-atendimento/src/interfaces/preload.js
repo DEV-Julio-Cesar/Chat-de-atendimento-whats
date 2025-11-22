@@ -89,6 +89,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   aoClientePronto: (callback) => ipcRenderer.on('new-client-ready', (_, data) => callback(data)),
   aoNovaMensagem: (callback) => ipcRenderer.on('nova-mensagem-recebida', (_, data) => callback(data)),
   abrirUsuarios: () => ipcRenderer.send('open-users-window'),
+  abrirPoolManager: () => ipcRenderer.send('open-pool-manager'),
   abrirChat: (clientId) => ipcRenderer.send('open-chat-window', clientId),
   abrirDashboard: () => ipcRenderer.send('open-dashboard'),
   abrirChatbot: () => ipcRenderer.send('open-chatbot'),
@@ -105,5 +106,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     release: (p) => ipcRenderer.invoke('attend:release', p),
     get: (p) => ipcRenderer.invoke('attend:get', p),
     list: () => ipcRenderer.invoke('attend:list')
+  }
+});
+
+// Expor API de navegação
+contextBridge.exposeInMainWorld('navigationAPI', {
+  navigate: (route, params = {}) => ipcRenderer.invoke('navigate-to', route, params),
+  goBack: () => ipcRenderer.invoke('navigate-back'),
+  goForward: () => ipcRenderer.invoke('navigate-forward'),
+  getState: () => ipcRenderer.invoke('navigation-get-state'),
+  onNavigationStateUpdate: (callback) => {
+    ipcRenderer.on('navigation-state', (_, state) => callback(state));
+  },
+  onParams: (callback) => {
+    ipcRenderer.on('navigation-params', (_, params) => callback(params));
   }
 });

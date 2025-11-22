@@ -10,13 +10,19 @@ const path = require('path');
 const fs = require('fs-extra');
 const axios = require('axios');
 const WebSocket = require('ws');
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
-const qrcode = require('qrcode');
+const { MessageMedia } = require('whatsapp-web.js');
 
 // Importações dos módulos internos
+const iaGemini = require('./src/aplicacao/ia-gemini');
+// Handler IPC para Gemini
+ipcMain.handle('ia:gemini:perguntar', async (_event, { mensagem, contexto }) => {
+    return await iaGemini.enviarPerguntaGemini({ mensagem, contexto });
+});
 const { validarCredenciais, obterNivelPermissao, obterDadosUsuario } = require('./src/aplicacao/validacao-credenciais');
 const gerenciadorUsuarios = require('./src/aplicacao/gerenciador-usuarios');
 const logger = require('./src/infraestrutura/logger');
+const WhatsAppPoolManager = require('./src/services/WhatsAppPoolManager');
+const WindowManager = require('./src/services/WindowManager');
 const gerenciadorMensagens = require('./src/aplicacao/gerenciador-mensagens');
 const gerenciadorMidia = require('./src/aplicacao/gerenciador-midia');
 const chatbot = require('./src/aplicacao/chatbot');
@@ -28,17 +34,21 @@ const relatorios = require('./src/aplicacao/relatorios');
 const tema = require('./src/aplicacao/tema');
 const { startApi } = require('./src/infraestrutura/api');
 
+// Core Infrastructure
+const configManager = require('./src/core/config-manager');
+const errorHandler = require('./src/core/error-handler');
+const performanceMonitor = require('./src/core/performance-monitor');
+const featureFlags = require('./src/core/feature-flags');
+
 // =========================================================================
 // 2. VARIÁVEIS GLOBAIS
 // =========================================================================
 
-// Janelas do Electron
-let mainWindow = null;
-let loginWindow = null;
-let historyWindow = null;
+// Window Manager (gerencia navegação entre telas)
+let windowManager = null;
 
-// Clientes WhatsApp (múltiplas conexões)
-const whatsappClients = new Map();
+// Pool Manager de Clientes WhatsApp
+let whatsappPool = null;
 const qrWindows = new Map();
 
 // Configurações da API Cloud (WhatsApp Business)
@@ -203,6 +213,15 @@ function createLoginWindow() {
 
     loginWindow.loadFile('src/interfaces/login.html');
     
+    // Abrir DevTools automaticamente em desenvolvimento
+    loginWindow.webContents.openDevTools();
+    
+    // Capturar erros do console
+    loginWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+        const levels = ['log', 'warn', 'error', 'debug'];
+        logger.info(`[Browser Console ${levels[level]}] ${message}`);
+    });
+    
     loginWindow.on('closed', () => {
         loginWindow = null;
         // Se fechar login sem autenticar, sai do app
@@ -311,6 +330,23 @@ function createQRWindow(clientId) {
     qrWindow.on('closed', () => {
         qrWindows.delete(clientId);
     });
+}
+
+/**
+ * Cria janela de gerenciamento de múltiplos clientes WhatsApp
+ */
+function createPoolManagerWindow() {
+    const win = new BrowserWindow({
+        width: 1200,
+        height: 800,
+        title: 'Gerenciador de Conexões WhatsApp',
+        webPreferences: {
+            preload: path.join(__dirname, 'src/interfaces/preload-pool-manager.js'),
+            nodeIntegration: false,
+            contextIsolation: true
+        }
+    });
+    win.loadFile('src/interfaces/pool-manager.html');
 }
 
 /**
@@ -477,127 +513,14 @@ function criarMenuPrincipal() {
 /**
  * Inicializa cliente WhatsApp com QR Code
  */
+/**
+ * Inicializa um cliente WhatsApp através do Pool Manager
+ * @deprecated Use whatsappPool.createAndInitialize() diretamente
+ */
 async function inicializarClienteWhatsApp(clientId) {
     try {
-        logger.info(`[${clientId}] Iniciando cliente WhatsApp...`);
-
-        const client = new Client({
-            authStrategy: new LocalAuth({ clientId }),
-            puppeteer: {
-                headless: true,
-                args: [
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--disable-gpu'
-                ]
-            }
-        });
-
-        // Evento: QR Code gerado
-        client.on('qr', async (qr) => {
-            logger.info(`[${clientId}] QR Code gerado`);
-            const qrWindow = qrWindows.get(clientId);
-            if (qrWindow && !qrWindow.isDestroyed()) {
-                try {
-                    // Converte o QR para imagem DataURL
-                    const qrDataURL = await qrcode.toDataURL(qr);
-                    qrWindow.webContents.send('qr-code-data', qrDataURL);
-                } catch (erro) {
-                    logger.erro(`[${clientId}] Erro ao gerar QR Code:`, erro.message);
-                }
-            }
-        });
-
-        // Evento: Cliente pronto
-        client.on('ready', () => {
-            logger.sucesso(`[${clientId}] Cliente conectado com sucesso!`);
-            whatsappClients.set(clientId, client);
-
-            // Notificação
-            notificacoes.notificarClienteConectado(clientId);
-
-            // Notifica janela QR específica
-            const qrWindow = qrWindows.get(clientId);
-            if (qrWindow && !qrWindow.isDestroyed()) {
-                qrWindow.webContents.send('whatsapp-ready', clientId);
-            }
-
-            BrowserWindow.getAllWindows().forEach(win => {
-                if (!win.isDestroyed()) {
-                    win.webContents.send('new-client-ready', {
-                        clientId,
-                        timestamp: Date.now()
-                    });
-                }
-            });
-        });
-
-        // Evento: Mensagem recebida
-        client.on('message', async (message) => {
-            if (message.fromMe || message.from.includes('@g.us')) return;
-
-            logger.info(`[${clientId}] Nova mensagem de ${message.from}: ${message.body}`);
-
-            // Notificação
-            const chat = await message.getChat();
-            notificacoes.notificarNovaMensagem(chat.name || message.from, message.body);
-
-            // Salva no histórico
-            await gerenciadorMensagens.salvarMensagem(clientId, message.from, {
-                id: message.id,
-                timestamp: message.timestamp * 1000,
-                from: message.from,
-                to: message.to,
-                body: message.body,
-                type: message.type,
-                fromMe: message.fromMe,
-                hasMedia: message.hasMedia
-            });
-
-            // Processa com chatbot
-            const resposta = await chatbot.processarMensagem(message.body, message.from, clientId);
-            
-            if (resposta.devResponder) {
-                await message.reply(resposta.resposta);
-                logger.info(`[${clientId}] Chatbot respondeu: ${resposta.resposta}`);
-            }
-
-            // Registra métrica
-            await metricas.registrarMensagemRecebida();
-            
-            // Notifica todas as janelas
-            BrowserWindow.getAllWindows().forEach(win => {
-                if (!win.isDestroyed()) {
-                    win.webContents.send('nova-mensagem-recebida', {
-                        clientId,
-                        chatId: message.from,
-                        mensagem: {
-                            id: message.id.id,
-                            body: message.body,
-                            timestamp: message.timestamp * 1000,
-                            fromMe: message.fromMe
-                        }
-                    });
-                }
-            });
-        });
-
-        // Evento: Desconectado
-        client.on('disconnected', (reason) => {
-            logger.aviso(`[${clientId}] Cliente desconectado: ${reason}`);
-            whatsappClients.delete(clientId);
-            
-            // Notificação
-            notificacoes.notificarClienteDesconectado(clientId);
-        });
-
-        await client.initialize();
-        return { success: true, clientId };
-
+        logger.info(`[${clientId}] Criando cliente no pool...`);
+        return await whatsappPool.createAndInitialize(clientId);
     } catch (erro) {
         logger.erro(`[${clientId}] Erro ao inicializar:`, erro.message);
         return { success: false, message: erro.message };
@@ -624,6 +547,8 @@ function configurarManipuladoresIPC() {
             usuarioLogado = { username, role, ...dados };
             
             logger.sucesso(`[Login] ${username} autenticado com sucesso (${role})`);
+            // Auditoria de login
+            try { require('./src/infraestrutura/auditoria').logAudit('login.success', { user: username, details: { role } }); } catch(e) {}
             
             // Registra atendente no sistema
             await atend.registrarAtendente(username);
@@ -632,39 +557,53 @@ function configurarManipuladoresIPC() {
             
         } catch (erro) {
             logger.erro('[Login] Erro:', erro.message);
+            try { require('./src/infraestrutura/auditoria').logAudit('login.error', { user: username, details: { erro: erro.message } }); } catch(e) {}
             return { success: false, message: 'Erro ao processar login: ' + erro.message };
         }
     });
 
     ipcMain.on('close-login-window', () => {
-        if (loginWindow) {
-            createMainWindow();
-            loginWindow.close();
+        // Após login bem sucedido definimos 'principal' como raiz
+        if (windowManager) {
+            windowManager.resetHistory('principal');
+        } else {
+            windowManager.navigate('principal');
         }
     });
 
     ipcMain.on('open-register-window', () => {
-        createCadastroWindow();
+        windowManager.navigate('cadastro');
     });
 
     // abrir lista de usuários
+    // Navegação simplificada (mantém compatibilidade)
     ipcMain.on('open-users-window', () => {
-        createUsuariosWindow();
+        windowManager.navigate('usuarios');
+    });
+
+    // abrir gerenciador de pool de clientes
+    ipcMain.on('open-pool-manager', () => {
+        windowManager.navigate('pool-manager');
     });
 
     // abrir janela de chat
     ipcMain.on('open-chat-window', (_event, clientId) => {
-        createChatWindow(clientId);
+        windowManager.navigate('chat', { clientId });
     });
 
     // abrir dashboard
     ipcMain.on('open-dashboard', () => {
-        createDashboardWindow();
+        windowManager.navigate('dashboard');
     });
 
     // abrir chatbot
     ipcMain.on('open-chatbot', () => {
-        createChatbotWindow();
+        windowManager.navigate('chatbot');
+    });
+    
+    // Restaurar sessões persistidas
+    ipcMain.handle('restore-persisted-sessions', async () => {
+        return await whatsappPool.restorePersistedSessions();
     });
 
     // API de cadastro
@@ -743,18 +682,18 @@ function configurarManipuladoresIPC() {
         try {
             // Formato novo (chat.html): { clientId, chatId, message }
             if (clientId && chatId && message) {
-                const client = whatsappClients.get(clientId);
-                if (!client) {
-                    return { success: false, message: 'Cliente não conectado' };
+                const result = await whatsappPool.sendMessage(clientId, chatId, message);
+                if (!result.success) {
+                    return result;
                 }
-
-                await client.sendMessage(chatId, message);
                 
                 // Registra métrica
                 await metricas.registrarMensagemEnviada();
+                // Auditoria
+                try { require('./src/infraestrutura/auditoria').logAudit('message.send', { user: usuarioLogado?.username, details: { clientId, chatId }}); } catch(e) {}
                 
                 await gerenciadorMensagens.salvarMensagem(clientId, chatId, {
-                    id: { id: Date.now() },
+                    id: { id: result.messageId || Date.now() },
                     timestamp: Date.now(),
                     from: 'me',
                     to: chatId,
@@ -775,6 +714,7 @@ function configurarManipuladoresIPC() {
                     const client = whatsappClients.get(clientId);
                     if (client.info) {
                         await client.sendMessage(`${numero}@c.us`, mensagem);
+                        try { require('./src/infraestrutura/auditoria').logAudit('message.send', { user: usuarioLogado?.username, details: { numero }}); } catch(e) {}
                         return { sucesso: true, dados: { status: 'enviado', clientId } };
                     }
                 }
@@ -872,6 +812,31 @@ function configurarManipuladoresIPC() {
             logger.erro('[Carregar Histórico] Erro:', erro.message);
             return { success: false, mensagens: [], message: erro.message };
         }
+    });
+
+    // --- MENSAGENS RÁPIDAS ---
+    const mensagensRapidas = require('./src/aplicacao/mensagens-rapidas');
+    ipcMain.handle('quick-messages-list', async () => {
+        return { success: true, mensagens: await mensagensRapidas.carregarTodas() };
+    });
+    ipcMain.handle('quick-messages-get', async (_e, codigo) => {
+        const msg = await mensagensRapidas.obterPorCodigo(codigo);
+        return msg ? { success: true, mensagem: msg } : { success: false, message: 'Não encontrada' };
+    });
+    ipcMain.handle('quick-messages-add', async (_e, { codigo, texto }) => {
+        return await mensagensRapidas.adicionarMensagem(codigo, texto);
+    });
+    ipcMain.handle('quick-messages-remove', async (_e, codigo) => {
+        return await mensagensRapidas.removerMensagem(codigo);
+    });
+    ipcMain.handle('quick-messages-metrics', async () => {
+        return await mensagensRapidas.obterMetricas();
+    });
+    ipcMain.handle('quick-messages-metrics-reset', async () => {
+        return await mensagensRapidas.resetMetricas();
+    });
+    ipcMain.handle('quick-messages-registrar-uso', async (_e, codigo) => {
+        return await mensagensRapidas.registrarUso(codigo);
     });
     
     ipcMain.handle('fetch-whatsapp-chats', async (event, clientId) => {
@@ -1035,23 +1000,40 @@ function configurarManipuladoresIPC() {
 
     // Listar clientes conectados
     ipcMain.handle('list-connected-clients', async () => {
-        return Array.from(whatsappClients.keys());
+        return whatsappPool.getReadyClients();
+    });
+
+    // Listar todos os clientes com informações detalhadas
+    ipcMain.handle('list-all-clients-info', async () => {
+        return whatsappPool.getAllClientsInfo();
+    });
+
+    // Obter estatísticas do pool
+    ipcMain.handle('get-pool-stats', async () => {
+        return whatsappPool.getStats();
     });
 
     // Desconectar cliente
     ipcMain.handle('disconnect-client', async (_event, clientId) => {
-        try {
-            const client = whatsappClients.get(clientId);
-            if (client) {
-                await client.destroy();
-                whatsappClients.delete(clientId);
-                logger.info(`[${clientId}] Cliente desconectado`);
-            }
-            return { success: true };
-        } catch (erro) {
-            logger.erro('[Desconectar] Erro:', erro.message);
-            return { success: false, message: erro.message };
+        return await whatsappPool.removeClient(clientId);
+    });
+
+    // Reconectar cliente
+    ipcMain.handle('reconnect-client', async (_event, clientId) => {
+        return await whatsappPool.reconnectClient(clientId);
+    });
+
+    // Fazer logout de cliente (remove sessão)
+    ipcMain.handle('logout-client', async (_event, clientId) => {
+        const client = whatsappPool.clients.get(clientId);
+        if (!client) {
+            return { success: false, message: 'Cliente não encontrado' };
         }
+        const result = await client.logout();
+        if (result.success) {
+            await whatsappPool.removeClient(clientId);
+        }
+        return result;
     });
 
     // Chatbot
@@ -1074,13 +1056,275 @@ function configurarManipuladoresIPC() {
             return { success: false, message: erro.message };
         }
     });
+
+    // Health Status
+    ipcMain.handle('health:get-status', async () => {
+        try {
+            const messageQueue = require('./src/core/message-queue');
+            const poolStats = whatsappPool.getStats();
+            const memUsage = process.memoryUsage();
+            const uptimeSec = process.uptime();
+            const uptimeStr = uptimeSec < 60 ? `${Math.floor(uptimeSec)}s` : 
+                              uptimeSec < 3600 ? `${Math.floor(uptimeSec / 60)}m` : 
+                              `${Math.floor(uptimeSec / 3600)}h`;
+            
+            const clientsInfo = whatsappPool.getAllClientsInfo().map(c => ({
+                clientId: c.clientId,
+                status: c.status,
+                phoneNumber: c.phoneNumber
+            }));
+
+            return {
+                pool: {
+                    totalClients: poolStats.totalClients,
+                    readyClients: poolStats.readyClients,
+                    clients: clientsInfo
+                },
+                queue: {
+                    size: messageQueue.size()
+                },
+                memory: {
+                    usedMB: memUsage.heapUsed / 1024 / 1024
+                },
+                uptime: uptimeStr
+            };
+        } catch (erro) {
+            logger.erro('[Health] Erro:', erro.message);
+            return { error: erro.message };
+        }
+    });
 }
 
 // =========================================================================
-// 9. INICIALIZAÇÃO DO APLICATIVO
+// 9. HANDLERS DE NAVEGAÇÃO
+// =========================================================================
+
+function setupNavigationHandlers() {
+    // Navegar para uma rota
+    ipcMain.handle('navigate-to', async (_event, route, params = {}) => {
+        logger.info(`[Navigation] Navegando para: ${route}`);
+        windowManager.navigate(route, params);
+        return { success: true };
+    });
+
+    // Voltar
+    ipcMain.handle('navigate-back', async () => {
+        const success = windowManager.goBack();
+        return { success };
+    });
+
+    // Avançar
+    ipcMain.handle('navigate-forward', async () => {
+        const success = windowManager.goForward();
+        return { success };
+    });
+
+    // Obter estado de navegação
+    ipcMain.handle('navigation-get-state', async () => {
+        return {
+            canGoBack: windowManager.canGoBack(),
+            canGoForward: windowManager.canGoForward(),
+            currentRoute: windowManager.getCurrentRoute()
+        };
+    });
+
+    logger.info('[Navigation] Handlers configurados');
+}
+
+// =========================================================================
+// 10. INICIALIZAÇÃO DO APLICATIVO
 // =========================================================================
 
 app.whenReady().then(async () => {
+    // ========================================
+    // CORE INFRASTRUCTURE SETUP
+    // ========================================
+    
+    // 1. Carregar configuração
+    try {
+        configManager.load();
+        logger.sucesso('[Config] Configuração carregada com sucesso');
+    } catch (error) {
+        logger.erro('[Config] Falha ao carregar configuração:', error.message);
+    }
+
+    // 2. Configurar error handler global
+    try {
+        errorHandler.setupGlobalHandlers();
+        logger.sucesso('[ErrorHandler] Handlers globais configurados');
+    } catch (error) {
+        logger.erro('[ErrorHandler] Falha na configuração:', error.message);
+    }
+
+    // 3. Iniciar performance monitoring
+    try {
+        if (configManager.get('monitoring.performanceMonitoring', true)) {
+            performanceMonitor.startEventLoopMonitoring();
+            logger.sucesso('[PerfMonitor] Monitoramento de performance iniciado');
+        }
+    } catch (error) {
+        logger.erro('[PerfMonitor] Falha na inicialização:', error.message);
+    }
+
+    // 4. Carregar feature flags
+    try {
+        const enabledFlags = featureFlags.getAllFlags()
+            .filter(f => f.enabled)
+            .map(f => f.name);
+        logger.info(`[FeatureFlags] ${enabledFlags.length} flags habilitadas`);
+        
+        if (featureFlags.hasExperimentalEnabled()) {
+            logger.alerta('[FeatureFlags] ⚠️ Features experimentais ativadas');
+        }
+    } catch (error) {
+        logger.erro('[FeatureFlags] Falha ao carregar flags:', error.message);
+    }
+
+    // ========================================
+    // APPLICATION SETUP
+    // ========================================
+    
+    // Inicializar Window Manager
+    windowManager = new WindowManager();
+    logger.info('[App] Window Manager inicializado');
+    
+    // Registrar logger e windowManager no DI
+    try {
+        const di = require('./src/core/di');
+        di.register('logger', logger);
+        di.register('windowManager', windowManager);
+        di.register('configManager', configManager);
+        di.register('errorHandler', errorHandler);
+        di.register('performanceMonitor', performanceMonitor);
+        di.register('featureFlags', featureFlags);
+        logger.sucesso('[DI] Core modules registrados no DI Container');
+    } catch(e) {
+        logger.erro('[DI] Falha ao registrar modules:', e.message);
+    }
+    
+    // Inicializar Pool Manager de WhatsApp
+    const whatsappConfig = configManager.get('whatsapp', {});
+    whatsappPool = new WhatsAppPoolManager({
+        maxClients: whatsappConfig.maxClients || 10,
+        sessionPath: path.join(__dirname, whatsappConfig.sessionPath || '.wwebjs_auth'),
+        persistencePath: path.join(__dirname, 'dados', 'whatsapp-sessions.json'),
+        autoReconnect: featureFlags.isEnabled('whatsapp.auto-reconnect'),
+        reconnectDelay: 5000,
+        healthCheckInterval: 60000,
+        
+        // Callbacks globais
+        onQR: (clientId, qrDataURL) => {
+            const qrWindow = qrWindows.get(clientId);
+            if (qrWindow && !qrWindow.isDestroyed()) {
+                qrWindow.webContents.send('qr-code-data', qrDataURL);
+            }
+        },
+        
+        onReady: (clientId, phoneNumber) => {
+            logger.sucesso(`[Pool] Cliente ${clientId} pronto - Telefone: ${phoneNumber || 'N/A'}`);
+            
+            // Notificação
+            notificacoes.notificarClienteConectado(clientId);
+            
+            // Notifica janela QR específica
+            const qrWindow = qrWindows.get(clientId);
+            if (qrWindow && !qrWindow.isDestroyed()) {
+                qrWindow.webContents.send('whatsapp-ready', clientId);
+            }
+            
+            // Notifica todas as janelas
+            BrowserWindow.getAllWindows().forEach(win => {
+                if (!win.isDestroyed()) {
+                    win.webContents.send('new-client-ready', { clientId, phoneNumber, timestamp: Date.now() });
+                }
+            });
+        },
+        
+        onMessage: async (clientId, message) => {
+            if (message.fromMe || message.from.includes('@g.us')) return;
+            
+            logger.info(`[${clientId}] Nova mensagem de ${message.from}: ${message.body}`);
+            
+            // Notificação
+            const chat = await message.getChat();
+            notificacoes.notificarNovaMensagem(chat.name || message.from, message.body);
+            
+            // Salva no histórico
+            await gerenciadorMensagens.salvarMensagem(clientId, message.from, {
+                id: message.id,
+                timestamp: message.timestamp * 1000,
+                from: message.from,
+                to: message.to,
+                body: message.body,
+                type: message.type,
+                fromMe: message.fromMe,
+                hasMedia: message.hasMedia
+            });
+            
+
+            // Processa com chatbot
+            const resposta = await chatbot.processarMensagem(message.body, message.from, clientId);
+            if (resposta.devResponder) {
+                await whatsappPool.sendMessage(clientId, message.from, resposta.resposta);
+                logger.info(`[${clientId}] Chatbot respondeu: ${resposta.resposta}`);
+            } else {
+                // Se chatbot não souber, aciona Gemini
+                const prompt = `Você é um agente virtual de atendimento de provedor de internet. Responda de forma clara, cordial e objetiva. Mensagem do cliente: "${message.body}"`;
+                try {
+                    const iaResp = await iaGemini.enviarPerguntaGemini({ mensagem: prompt });
+                    if (iaResp.success && iaResp.resposta) {
+                        await whatsappPool.sendMessage(clientId, message.from, iaResp.resposta);
+                        logger.info(`[${clientId}] Gemini respondeu: ${iaResp.resposta}`);
+                    } else {
+                        logger.info(`[${clientId}] Gemini não respondeu: ${iaResp.message}`);
+                    }
+                } catch (e) {
+                    logger.erro(`[${clientId}] Erro ao acionar Gemini:`, e.message);
+                }
+            }
+            
+            // Registra métrica
+            await metricas.registrarMensagemRecebida();
+            
+            // Notifica todas as janelas
+            BrowserWindow.getAllWindows().forEach(win => {
+                if (!win.isDestroyed()) {
+                    win.webContents.send('nova-mensagem-recebida', {
+                        clientId,
+                        chatId: message.from,
+                        mensagem: {
+                            id: message.id.id,
+                            body: message.body,
+                            timestamp: message.timestamp * 1000,
+                            fromMe: message.fromMe
+                        }
+                    });
+                }
+            });
+        },
+        
+        onDisconnected: (clientId, reason) => {
+            logger.aviso(`[Pool] Cliente ${clientId} desconectado: ${reason}`);
+            notificacoes.notificarClienteDesconectado(clientId);
+        },
+        
+        onAuthFailure: (clientId, message) => {
+            logger.erro(`[Pool] Falha de autenticação ${clientId}: ${message}`);
+        }
+    });
+    // Registrar pool no DI
+    try {
+        const di = require('./src/core/di');
+        di.register('whatsappPool', whatsappPool);
+    } catch(e) {
+        logger.erro('[DI] Falha ao registrar whatsappPool:', e.message);
+    }
+    
+    // Iniciar health check periódico
+    whatsappPool.startHealthCheck();
+    
+    logger.info('[Pool] WhatsApp Pool Manager inicializado');
+    
     configurarManipuladoresIPC();
     criarMenuPrincipal();
     
@@ -1088,14 +1332,25 @@ app.whenReady().then(async () => {
     createLoginWindow();
     
     // Configura backups e API
-    backups.scheduleBackups();
+    if (featureFlags.isEnabled('backup.auto')) {
+        backups.scheduleBackups();
+        logger.info('[Backup] Backup automático agendado');
+    }
     
-    startApi({
-        getClients: () => Array.from(whatsappClients.keys()),
+    const apiConfig = configManager.get('api', {});
+    if (apiConfig.enabled !== false && featureFlags.isEnabled('monitoring.metrics')) {
+        startApi({
+        getClients: () => whatsappPool.getReadyClients(),
+        getStats: () => whatsappPool.getStats(),
+        getAllClientsInfo: () => whatsappPool.getAllClientsInfo(),
         listChats: async (clientId) => {
             try {
-                const client = whatsappClients.get(clientId);
-                if (!client) return { success: false, chats: [], message: 'Cliente não conectado' };
+                const clientInfo = whatsappPool.getClientInfo(clientId);
+                if (!clientInfo || clientInfo.status !== 'ready') {
+                    return { success: false, chats: [], message: 'Cliente não conectado' };
+                }
+                
+                const client = whatsappPool.clients.get(clientId).client;
                 const chats = await client.getChats();
                 return {
                     success: true,
@@ -1106,16 +1361,19 @@ app.whenReady().then(async () => {
             }
         },
         sendMessage: async ({ clientId, chatId, message }) => {
-            try {
-                const client = whatsappClients.get(clientId);
-                if (!client) return { success: false, message: 'Cliente não conectado' };
-                await client.sendMessage(chatId, message);
-                return { success: true };
-            } catch (e) {
-                return { success: false, message: e.message };
-            }
+            return await whatsappPool.sendMessage(clientId, chatId, message);
         }
-    });
+        });
+        logger.sucesso(`[API] Servidor iniciado na porta ${apiConfig.port || 3333}`);
+    } else {
+        logger.info('[API] API desabilitada por configuração');
+    }
+    
+    // Configurar handlers de navegação
+    setupNavigationHandlers();
+    
+    // Iniciar com tela de login
+    windowManager.navigate('login');
 });
 
 app.on('window-all-closed', () => {
@@ -1126,20 +1384,33 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-        createLoginWindow();
+        windowManager.navigate('login');
     }
 });
 
 app.on('before-quit', async () => {
     logger.info('=== Encerrando Aplicativo ===');
     
-    // Fecha todos os clientes WhatsApp
-    for (const [clientId, client] of whatsappClients.entries()) {
-        try {
-            await client.destroy();
-        } catch (erro) {
-            logger.erro(`Erro ao fechar ${clientId}:`, erro.message);
+    // Performance report
+    try {
+        if (configManager.get('monitoring.performanceMonitoring', true)) {
+            performanceMonitor.report();
         }
+    } catch (error) {
+        logger.erro('[PerfMonitor] Erro ao gerar relatório:', error.message);
+    }
+    
+    // Salvar configuração
+    try {
+        configManager.save();
+        logger.info('[Config] Configuração salva');
+    } catch (error) {
+        logger.erro('[Config] Erro ao salvar:', error.message);
+    }
+    
+    // Shutdown gracioso do pool
+    if (whatsappPool) {
+        await whatsappPool.shutdown();
     }
     
     // Notificação de saída

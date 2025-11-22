@@ -1,0 +1,79 @@
+{
+  "versao": 1,
+  "ativo": true,
+  "limiteTentativasDiagnostico": 3,
+  "intents": [
+    {
+      "nome": "saudacao",
+      "palavras": ["oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"],
+      "tipo": "simples",
+      "resposta": "Olá! Sou o assistente do provedor. Em que posso ajudar?"
+    },
+    {
+      "nome": "sem_conexao",
+      "palavras": ["sem internet", "sem conexão", "não conecta", "nao conecta", "offline"],
+      "tipo": "diagnostico",
+      "resposta": "Vamos verificar sua conexão. Seguirei alguns passos.",
+      "passosDiagnostico": [
+        "Confirme se o modem/roteador está ligado e com cabos firmes.",
+        "Verifique se as luzes 'Power', 'WAN/DSL' e 'Internet' estão acesas.",
+        "Reinicie o modem: desligue, aguarde 10 segundos e ligue novamente.",
+        "Teste outro dispositivo para descartar problema específico.",
+        "Aguarde 2 minutos e me diga se voltou." 
+      ],
+      "escalarSeFalha": true
+    },
+    {
+      "nome": "velocidade_lenta",
+      "palavras": ["lento", "velocidade", "devagar", "ping alto", "instavel", "oscilando"],
+      "tipo": "diagnostico",
+      "resposta": "Você está enfrentando lentidão. Vou orientar alguns testes.",
+      "passosDiagnostico": [
+        "Feche downloads/streams pesados temporariamente.",
+        "Reinicie modem e aguarde estabilização (2 minutos).",
+        "Faça um teste de velocidade em speedtest.net.",
+        "Informe os valores de download e upload aqui.",
+        "Verifique se há muitos dispositivos conectados." 
+      ],
+      "registrarMetricas": true
+    },
+    {
+      "nome": "fatura",
+      "palavras": ["fatura", "boleto", "2 via", "segunda via", "pagamento"],
+      "tipo": "informacao",
+      "resposta": "Para sua fatura: acesse área do cliente ou solicite geração da segunda via. Deseja link de acesso?"
+    },
+    {
+      "nome": "upgrade_plano",
+      "palavras": ["upgrade", "aumentar plano", "mais velocidade", "mudar plano"],
+      "tipo": "informacao",
+      "resposta": "Temos opções de upgrade. Velocidades disponíveis: 200Mbps, 400Mbps, 600Mbps. Quer que eu encaminhe para um atendente para finalizar?",
+      "escalarSempre": true
+    },
+    {
+      "nome": "cancelamento",
+      "palavras": ["cancelar", "cancelamento", "encerrar serviço"],
+      "tipo": "sensivel",
+      "resposta": "Lamento que queira cancelar. Vou encaminhar você para um atendente especializado imediatamente.",
+      "escalarSempre": true
+    },
+    {
+      "nome": "mudanca_endereco",
+      "palavras": ["mudar endereço", "mudança de endereço", "trocar endereço"],
+      "tipo": "informacao",
+      "resposta": "Para mudança de endereço verificamos disponibilidade técnica. Posso coletar CEP e número para iniciar?"
+    },
+    {
+      "nome": "senha_wifi",
+      "palavras": ["senha wifi", "trocar senha wifi", "alterar wifi"],
+      "tipo": "tutorial",
+      "resposta": "Para alterar a senha Wi-Fi: 1) Acesse 192.168.0.1 ou 192.168.1.1. 2) Faça login (usuário: admin). 3) Procure 'Wireless' > 'Security'. 4) Defina nova senha forte e salve.",
+      "registrarMetricas": true
+    }
+  ],
+  "mensagens": {
+    "nao_entendi": "Não consegui identificar o tema. Vou encaminhar para um atendente.",
+    "diagnostico_continuar": "Deseja continuar com o próximo passo do diagnóstico? (sim/não)",
+    "escalando": "Encaminhando para atendimento humano..."
+  }
+}

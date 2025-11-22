@@ -37,6 +37,11 @@
     .pager button { background:#111827; color:#fff; }
     .pager .info { color:#374151; font-size:13px; }
   </style>
+  
+  <!-- UX Components -->
+  <script src="./toast-notifications.js"></script>
+  <script src="./loading-states.js"></script>
+  <script src="./confirmation-modal.js"></script>
 </head>
 <body>
   <header><h1>Lista de Usuários</h1></header>
@@ -270,6 +275,11 @@
     // Inicial
     size = parseInt($('pageSize').value, 10);
     carregar();
+  </script>
+  
+  <script src="navigation-bar.js"></script>
+  <script>
+    initNavigationBar('Lista de Usuários');
   </script>
 </body>
 </html>

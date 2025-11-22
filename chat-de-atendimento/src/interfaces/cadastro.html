@@ -83,10 +83,20 @@
                     <option value="admin">Administrador</option>
                 </select>
             </div>
-            <button type="submit">Cadastrar</button>
+            <button type="submit" id="btnCadastrar">Cadastrar</button>
         </form>
     </div>
+    
+    <!-- UX Components -->
+    <script src="./toast-notifications.js"></script>
+    <script src="./loading-states.js"></script>
+    <script src="./confirmation-modal.js"></script>
+    
     <script>
+        // Inicializar Toast e Loading
+        const toast = new ToastNotification();
+        const loadingState = new LoadingState();
+        
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const dados = {
@@ -95,14 +105,29 @@
                 password: password.value,
                 role: role.value
             };
-            const res = await window.cadastroAPI.cadastrar(dados);
-            if (res.success) {
-                msg.innerHTML = '<div class="message success">✅ Usuário cadastrado!</div>';
-                form.reset();
-            } else {
-                msg.innerHTML = `<div class="message error">❌ ${res.message}</div>`;
+            
+            const btnCadastrar = document.getElementById('btnCadastrar');
+            loadingState.button(btnCadastrar, true);
+            
+            try {
+                const res = await window.cadastroAPI.cadastrar(dados);
+                if (res.success) {
+                    toast.success('Usuário cadastrado com sucesso!');
+                    form.reset();
+                } else {
+                    toast.error(res.message || 'Erro ao cadastrar usuário');
+                }
+            } catch (error) {
+                toast.error('Erro ao cadastrar: ' + error.message);
+            } finally {
+                loadingState.button(btnCadastrar, false);
             }
         });
+    </script>
+    
+    <script src="navigation-bar.js"></script>
+    <script>
+        initNavigationBar('Cadastro de Usuário');
     </script>
 </body>
 </html>

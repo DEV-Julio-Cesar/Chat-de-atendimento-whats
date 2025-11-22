@@ -105,11 +105,19 @@
     </style>
 </head>
 <body>
+    <!-- Incluir componente de navegação -->
+    <script src="navigation-bar.js"></script>
+    
     <div class="container">
         <h1>🚀 Sistema de Atendimento WhatsApp</h1>
         <p class="subtitle">Gerencie suas conversas de forma profissional</p>
         
         <div class="menu-grid">
+            <button class="menu-item" onclick="abrirPoolManager()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                <span class="icon">🔗</span>
+                Gerenciar Conexões
+            </button>
+            
             <button class="menu-item" onclick="abrirNovoQR()">
                 <span class="icon">📱</span>
                 Conectar WhatsApp
@@ -135,9 +143,9 @@
                 Usuários
             </button>
             
-            <button class="menu-item" onclick="listarClientes()">
-                <span class="icon">📋</span>
-                Clientes
+            <button class="menu-item" onclick="abrirHealth()">
+                <span class="icon">🏥</span>
+                Health Monitor
             </button>
         </div>
         
@@ -178,6 +186,10 @@
             window.electronAPI.abrirChat(clientes[0]);
         }
 
+        function abrirPoolManager() {
+            window.electronAPI.abrirPoolManager();
+        }
+
         function abrirDashboard() {
             window.electronAPI.abrirDashboard();
         }
@@ -188,6 +200,10 @@
 
         function abrirUsuarios() {
             window.electronAPI.abrirUsuarios();
+        }
+
+        function abrirHealth() {
+            window.navigationAPI.navigate('health');
         }
 
         async function listarClientes() {
@@ -221,6 +237,9 @@
           await window.electronAPI.setTheme(theme);
           document.documentElement.setAttribute('data-theme', theme);
         });
+        
+        // Inicializar barra de navegação
+        initNavigationBar('Sistema de Atendimento WhatsApp');
     </script>
 </body>
 </html>

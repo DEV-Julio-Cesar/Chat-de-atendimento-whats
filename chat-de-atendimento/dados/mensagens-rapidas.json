@@ -1,0 +1,10 @@
+[
+  { "codigo": "saudacao", "texto": "Olá! Como posso ajudar hoje?" },
+  { "codigo": "semnet", "texto": "Identificamos possível instabilidade. Reinicie seu modem e aguarde 2 minutos, por favor." },
+  { "codigo": "lento", "texto": "Realize um teste de velocidade em speedtest.net e me informe download/upload." },
+  { "codigo": "fatura", "texto": "Para sua fatura: segue link da área do cliente https://provedor.exemplo/fatura" },
+  { "codigo": "upgrade", "texto": "Temos planos 200Mbps, 400Mbps e 600Mbps. Deseja que eu encaminhe para contratação?" },
+  { "codigo": "cancelamento", "texto": "Lamento ouvir isso. Posso encaminhar para o setor de retenção imediatamente." },
+  { "codigo": "mudanca", "texto": "Para mudança de endereço preciso do novo CEP e número para verificar disponibilidade." },
+  { "codigo": "wifi", "texto": "Para alterar a senha Wi-Fi: acesse 192.168.0.1 (usuário admin) e ajuste em Wireless > Security." }
+]

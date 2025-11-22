@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🏥 Health - Sistema</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: Arial, sans-serif; background:#f5f5f5; padding:20px; }
+    h1 { font-size:24px; margin-bottom:20px; color:#333; }
+    .container { max-width:1200px; margin:0 auto; }
+    .section { background:#fff; padding:20px; border-radius:8px; margin-bottom:20px; box-shadow:0 2px 8px rgba(0,0,0,.1); }
+    .section-title { font-size:18px; font-weight:600; margin-bottom:12px; color:#111; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:12px; }
+    .card { background:#f9f9f9; padding:16px; border-radius:6px; border-left:4px solid #10b981; }
+    .card.warning { border-left-color:#f59e0b; }
+    .card.error { border-left-color:#ef4444; }
+    .card-label { font-size:13px; color:#666; margin-bottom:4px; }
+    .card-value { font-size:24px; font-weight:700; color:#111; }
+    .status-badge { display:inline-block; padding:4px 12px; border-radius:999px; font-size:12px; font-weight:600; }
+    .status-ok { background:#dcfce7; color:#166534; }
+    .status-warn { background:#fef3c7; color:#92400e; }
+    .status-error { background:#fee2e2; color:#991b1b; }
+    button { padding:10px 16px; background:#1f2937; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600; margin-right:8px; }
+    button:hover { background:#374151; }
+    .client-list { margin-top:12px; }
+    .client-item { background:#f9f9f9; padding:8px 12px; border-radius:4px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🏥 Sistema de Saúde</h1>
+
+    <div class="section">
+      <div class="section-title">Status Geral</div>
+      <div class="grid">
+        <div class="card" id="card-pool">
+          <div class="card-label">WhatsApp Pool</div>
+          <div class="card-value" id="pool-status">-</div>
+        </div>
+        <div class="card" id="card-queue">
+          <div class="card-label">Fila de Mensagens</div>
+          <div class="card-value" id="queue-size">-</div>
+        </div>
+        <div class="card" id="card-memory">
+          <div class="card-label">Memória (MB)</div>
+          <div class="card-value" id="memory-usage">-</div>
+        </div>
+        <div class="card" id="card-uptime">
+          <div class="card-label">Uptime</div>
+          <div class="card-value" id="uptime">-</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Clientes WhatsApp</div>
+      <button onclick="refreshClients()">🔄 Atualizar</button>
+      <div class="client-list" id="client-list">
+        <p style="color:#999;">Carregando...</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function loadHealth() {
+      try {
+        const data = await window.healthAPI.getHealthStatus();
+        
+        document.getElementById('pool-status').textContent = data.pool.totalClients;
+        document.getElementById('card-pool').className = data.pool.readyClients > 0 ? 'card' : 'card warning';
+        
+        document.getElementById('queue-size').textContent = data.queue.size;
+        document.getElementById('card-queue').className = data.queue.size > 10 ? 'card warning' : 'card';
+        
+        document.getElementById('memory-usage').textContent = data.memory.usedMB.toFixed(2);
+        document.getElementById('card-memory').className = data.memory.usedMB > 500 ? 'card warning' : 'card';
+        
+        document.getElementById('uptime').textContent = data.uptime;
+        
+        renderClients(data.pool.clients);
+      } catch(e) {
+        console.error('Erro ao carregar health:', e);
+      }
+    }
+
+    function renderClients(clients) {
+      const list = document.getElementById('client-list');
+      if (!clients || clients.length === 0) {
+        list.innerHTML = '<p style="color:#999;">Nenhum cliente conectado</p>';
+        return;
+      }
+      list.innerHTML = clients.map(c => `
+        <div class="client-item">
+          <span><strong>${c.clientId}</strong> - ${c.phoneNumber || 'N/A'}</span>
+          <span class="status-badge status-${c.status === 'ready' ? 'ok' : 'warn'}">${c.status}</span>
+        </div>
+      `).join('');
+    }
+
+    function refreshClients() {
+      loadHealth();
+    }
+
+    setInterval(loadHealth, 5000);
+    loadHealth();
+  </script>
+</body>
+</html>

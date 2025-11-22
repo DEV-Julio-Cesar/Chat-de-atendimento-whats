@@ -18,6 +18,9 @@
 const configuracoes = {
     
     // =====================================================
+    // CONFIGURAÇÃO DE IA (Gemini)
+    // =====================================================
+    geminiApiKey: process.env.GEMINI_API_KEY || '',
     // INFORMAÇÕES GERAIS
     // =====================================================
     aplicativo: {

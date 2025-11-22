@@ -3,6 +3,8 @@ const path = require('path');
 const logger = require('../infraestrutura/logger');
 
 const RULES_FILE = path.join(__dirname, '../../dados/chatbot-rules.json');
+const ISP_CONFIG_FILE = path.join(__dirname, '../../dados/provedor-config.json');
+const ISP_METRICS_FILE = path.join(__dirname, '../../dados/provedor-metrics.json');
 
 // Regras padrão
 const DEFAULT_RULES = {
@@ -94,6 +96,76 @@ function estaEmHorarioAtendimento(regras) {
     return horaAtual >= horarioInicio && horaAtual <= horarioFim;
 }
 
+// ---------------------- Config Provedor Internet ----------------------
+const DEFAULT_ISP_CONFIG = {
+    ativo: true,
+    limiteTentativasDiagnostico: 3,
+    intents: [],
+    mensagens: {
+        nao_entendi: 'Não consegui identificar o tema. Encaminhando para um atendente.',
+        diagnostico_continuar: 'Deseja continuar com o próximo passo do diagnóstico? (sim/não)',
+        escalando: 'Encaminhando para atendimento humano...'
+    }
+};
+
+async function garantirConfigProvedor() {
+    try {
+        await fs.ensureFile(ISP_CONFIG_FILE);
+        const conteudo = await fs.readFile(ISP_CONFIG_FILE, 'utf-8');
+        if (!conteudo.trim()) {
+            await fs.writeJson(ISP_CONFIG_FILE, DEFAULT_ISP_CONFIG, { spaces: 2 });
+            logger.info('[Chatbot] Config provedor criada com default');
+        }
+    } catch (erro) {
+        await fs.writeJson(ISP_CONFIG_FILE, DEFAULT_ISP_CONFIG, { spaces: 2 });
+        logger.info('[Chatbot] Config provedor inicializada com default');
+    }
+}
+
+async function carregarConfigProvedor() {
+    try {
+        await garantirConfigProvedor();
+        return await fs.readJson(ISP_CONFIG_FILE);
+    } catch (erro) {
+        logger.erro('[Chatbot] Erro ao carregar config provedor:', erro.message);
+        return DEFAULT_ISP_CONFIG;
+    }
+}
+
+async function registrarMetricaIntent(nomeIntent) {
+    try {
+        await fs.ensureFile(ISP_METRICS_FILE);
+        let metrics = {};
+        try {
+            metrics = await fs.readJson(ISP_METRICS_FILE);
+        } catch { metrics = {}; }
+        metrics[nomeIntent] = (metrics[nomeIntent] || 0) + 1;
+        await fs.writeJson(ISP_METRICS_FILE, metrics, { spaces: 2 });
+    } catch (erro) {
+        logger.erro('[Chatbot] Falha ao registrar métrica intent:', erro.message);
+    }
+}
+
+function detectarIntentProvedor(textoLower, config) {
+    if (!config.ativo || !config.intents || !Array.isArray(config.intents)) return null;
+    for (const intent of config.intents) {
+        for (const palavra of intent.palavras) {
+            if (textoLower.includes(palavra.toLowerCase())) {
+                return intent;
+            }
+        }
+    }
+    return null;
+}
+
+function montarRespostaIntent(intent) {
+    if (intent.tipo === 'diagnostico' && Array.isArray(intent.passosDiagnostico)) {
+        const passos = intent.passosDiagnostico.map((p, i) => `${i + 1}) ${p}`).join('\n');
+        return `${intent.resposta}\n\nPassos:\n${passos}`;
+    }
+    return intent.resposta;
+}
+
 async function processarMensagem(mensagem, chatId, clientId) {
     try {
         const regras = await carregarRegras();
@@ -111,8 +183,23 @@ async function processarMensagem(mensagem, chatId, clientId) {
         }
         
         const textoLower = mensagem.toLowerCase().trim();
+
+        // Primeiro: detectar intents específicas de provedor
+        const configProvedor = await carregarConfigProvedor();
+        const intent = detectarIntentProvedor(textoLower, configProvedor);
+        if (intent) {
+            if (intent.registrarMetricas) {
+                registrarMetricaIntent(intent.nome);
+            }
+            const respostaIntent = montarRespostaIntent(intent);
+            // Se necessidade de escalonamento imediato
+            if (intent.escalarSempre) {
+                return { devResponder: true, resposta: respostaIntent + '\n\n' + configProvedor.mensagens.escalando, escalar: true };
+            }
+            return { devResponder: true, resposta: respostaIntent, tipoIntent: intent.tipo, intent: intent.nome };
+        }
         
-        // Busca por palavras-chave
+        // Busca por palavras-chave (regras gerais)
         for (const regra of regras.palavrasChave) {
             for (const palavra of regra.palavras) {
                 if (textoLower.includes(palavra.toLowerCase())) {
@@ -125,8 +212,9 @@ async function processarMensagem(mensagem, chatId, clientId) {
         }
         
         // Resposta padrão se não encontrou palavra-chave
+        // Se nenhuma intent ou palavra-chave geral, encaminhar para humano
         return {
-            devResponder: false // Deixa para atendente humano
+            devResponder: false
         };
         
     } catch (erro) {
@@ -139,5 +227,6 @@ module.exports = {
     carregarRegras,
     salvarRegras,
     processarMensagem,
-    estaEmHorarioAtendimento
+    estaEmHorarioAtendimento,
+    carregarConfigProvedor
 };

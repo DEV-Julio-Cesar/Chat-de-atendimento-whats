@@ -41,6 +41,11 @@
     
     .actions { display:flex; gap:12px; margin-top:20px; }
   </style>
+  
+  <!-- UX Components -->
+  <script src="./toast-notifications.js"></script>
+  <script src="./loading-states.js"></script>
+  <script src="./confirmation-modal.js"></script>
 </head>
 <body>
   <header>
@@ -197,6 +202,11 @@
     }
 
     carregarConfiguracoes();
+  </script>
+  
+  <script src="navigation-bar.js"></script>
+  <script>
+    initNavigationBar('🤖 Configuração do Chatbot');
   </script>
 </body>
 </html>

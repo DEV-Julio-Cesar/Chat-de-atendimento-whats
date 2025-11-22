@@ -271,7 +271,7 @@
                         autocomplete="current-password"
                         required
                     >
-                    <button type="button" class="toggle-btn" onclick="togglePassword()">👁️</button>
+                    <button type="button" class="toggle-btn" onclick="togglePassword(event)">👁️</button>
                 </div>
             </div>
 
@@ -292,19 +292,83 @@
         <div class="version">v1.0.0</div>
     </div>
 
-    <script>
-        // Verifica se a API está disponível
-        if (!window.authAPI) {
-            mostrarMensagem('Erro fatal: A API de login não foi carregada.', 'error');
-            document.getElementById('loginForm').style.display = 'none';
-            throw new Error('authAPI não disponível');
-        }
+    <!-- UX Components -->
+    <script src="./toast-notifications.js"></script>
+    <script src="./loading-states.js"></script>
+    <script src="./confirmation-modal.js"></script>
 
-        // Carregar usuário salvo
-        const savedUser = localStorage.getItem('savedUsername');
-        if (savedUser) {
-            document.getElementById('username').value = savedUser;
-            document.getElementById('rememberMe').checked = true;
+    <script>
+        // Prevenir execução múltipla
+        if (window.loginScriptExecuted) {
+            console.warn('[LOGIN] Script já foi executado, ignorando');
+        } else {
+            window.loginScriptExecuted = true;
+            
+            console.log('[LOGIN] Script iniciado');
+            console.log('[LOGIN] window.authAPI:', window.authAPI);
+            console.log('[LOGIN] window.navigationAPI:', window.navigationAPI);
+            
+            // Verificar se componentes UX estão disponíveis
+            var toast, loadingState;
+        
+        if (typeof ToastNotification !== 'undefined') {
+            toast = new ToastNotification();
+            console.log('[LOGIN] Toast Notifications carregado');
+        } else {
+            console.error('[LOGIN] ToastNotification não carregado! Usando fallback.');
+            // Fallback para toast
+            toast = {
+                success: (msg) => { console.log('✅', msg); alert(msg); },
+                error: (msg) => { console.error('❌', msg); alert(msg); },
+                info: (msg) => { console.info('ℹ️', msg); alert(msg); },
+                warning: (msg) => { console.warn('⚠️', msg); alert(msg); }
+            };
+        }
+        
+        if (typeof LoadingState !== 'undefined') {
+            loadingState = new LoadingState();
+            console.log('[LOGIN] Loading States carregado');
+        } else {
+            console.error('[LOGIN] LoadingState não carregado! Usando fallback.');
+            // Fallback para loading
+            loadingState = {
+                button: (btn, loading) => {
+                    if (loading) {
+                        btn.disabled = true;
+                        btn.dataset.originalText = btn.innerHTML;
+                        btn.innerHTML = '<span class="loading-spinner"></span>Entrando...';
+                    } else {
+                        btn.disabled = false;
+                        btn.innerHTML = btn.dataset.originalText || 'Entrar';
+                    }
+                }
+            };
+        }
+        
+        // Aguardar carregamento da API
+        function inicializar() {
+            console.log('[LOGIN] Inicializando... authAPI disponível?', !!window.authAPI);
+            
+            // Verifica se a API está disponível
+            if (!window.authAPI) {
+                const mensagem = 'Erro fatal: A API de login não foi carregada.';
+                console.error('[LOGIN]', mensagem);
+                console.error('[LOGIN] window:', window);
+                console.error('[LOGIN] Object.keys(window):', Object.keys(window).filter(k => k.includes('API')));
+                
+                mostrarMensagem(mensagem, 'error');
+                document.getElementById('loginForm').style.display = 'none';
+                return;
+            }
+
+            console.log('[LOGIN] authAPI carregada com sucesso');
+            
+            // Carregar usuário salvo
+            const savedUser = localStorage.getItem('savedUsername');
+            if (savedUser) {
+                document.getElementById('username').value = savedUser;
+                document.getElementById('rememberMe').checked = true;
+            }
         }
 
         function mostrarMensagem(texto, tipo = 'info') {
@@ -318,7 +382,7 @@
             }
         }
 
-        function togglePassword() {
+        function togglePassword(event) {
             const input = document.getElementById('password');
             const btn = event.target;
             
@@ -344,19 +408,20 @@
             const rememberMe = document.getElementById('rememberMe').checked;
             
             if (!username || !password) {
-                mostrarMensagem('Por favor, preencha todos os campos.', 'error');
+                toast.error('Por favor, preencha todos os campos.');
                 return;
             }
 
             const btnLogin = document.getElementById('btnLogin');
-            btnLogin.disabled = true;
-            btnLogin.innerHTML = '<span class="loading-spinner"></span>Entrando...';
+            loadingState.button(btnLogin, true);
             
             try {
+                console.log('[LOGIN] Tentando login com:', username);
                 const resultado = await window.authAPI.tentarLogin(username, password);
+                console.log('[LOGIN] Resultado:', resultado);
                 
                 if (resultado.success) {
-                    mostrarMensagem('✅ Login realizado com sucesso!', 'success');
+                    toast.success('Login realizado com sucesso!');
                     
                     // Salvar usuário se marcou "lembrar-me"
                     if (rememberMe) {
@@ -365,23 +430,27 @@
                         localStorage.removeItem('savedUsername');
                     }
                     
-                    // Fecha janela de login após 1 segundo
-                    setTimeout(() => {
-                        window.authAPI.fecharJanela();
-                    }, 1000);
+                    // Navegar para tela principal após 800ms
+                    setTimeout(async () => {
+                        try {
+                            await window.navigationAPI.navigate('principal');
+                        } catch (error) {
+                            console.error('[LOGIN] Erro ao navegar:', error);
+                            // Fallback para método antigo
+                            window.authAPI.fecharJanela();
+                        }
+                    }, 800);
                     
                 } else {
-                    mostrarMensagem(resultado.message || '❌ Usuário ou senha inválidos.', 'error');
-                    btnLogin.disabled = false;
-                    btnLogin.innerHTML = 'Entrar';
+                    toast.error(resultado.message || 'Usuário ou senha inválidos.');
+                    loadingState.button(btnLogin, false);
                     document.getElementById('password').value = '';
                     document.getElementById('password').focus();
                 }
                 
             } catch (erro) {
-                mostrarMensagem('❌ Erro ao realizar login: ' + erro.message, 'error');
-                btnLogin.disabled = false;
-                btnLogin.innerHTML = 'Entrar';
+                toast.error('Erro ao realizar login: ' + erro.message);
+                loadingState.button(btnLogin, false);
             }
         });
 
@@ -392,8 +461,16 @@
             }
         });
 
+        // Inicializar quando DOM estiver pronto
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', inicializar);
+        } else {
+            inicializar();
+        }
+
         // Mensagem inicial
-        mostrarMensagem('👋 Bem-vindo! Use "admin/admin" para primeiro acesso.', 'info');
+        toast.info('👋 Bem-vindo! Use "admin/admin" para primeiro acesso.');
+        } // Fim do if
     </script>
 </body>
 </html>

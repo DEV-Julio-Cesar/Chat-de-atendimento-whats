@@ -1,6 +1,8 @@
 # 🚀 CHAT DE ATENDIMENTO WHATSAPP - VERSÃO 2.0
 
 > **Sistema completo de atendimento ao cliente via WhatsApp com interface Electron**
+> 
+> ✨ **NOVO:** Suporte a **múltiplas conexões WhatsApp simultâneas** com gerenciamento profissional!
 
 ---
 
@@ -25,7 +27,8 @@ npm run teste:cadastro
 **📚 Documentação Completa:**
 - 📖 `docs/COMANDOS.md` - Todos os comandos disponíveis
 - 🏗️ `docs/ESTRUTURA.md` - Arquitetura do projeto
-- 🧪 `docs/TESTE-WHATSAPP.md` - **Guia de teste da integração WhatsApp**
+- 🧪 `docs/TESTE-WHATSAPP.md` - Guia de teste da integração WhatsApp
+- 🔗 **`docs/MULTI-WHATSAPP.md` - Sistema de múltiplas conexões (NOVO!)**
 
 ---
 

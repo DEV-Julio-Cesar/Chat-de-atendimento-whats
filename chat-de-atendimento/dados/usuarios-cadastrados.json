@@ -1,0 +1,10 @@
+[
+  {
+    "username": "admin",
+    "password": "admin",
+    "role": "admin",
+    "email": "admin@sistema.com",
+    "createdAt": "2025-11-21T20:00:00.000Z",
+    "active": true
+  }
+]

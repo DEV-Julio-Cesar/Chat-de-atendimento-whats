@@ -18,6 +18,7 @@
  */
 
 const WebSocket = require('ws');
+const { roteamentoAutomatizado } = require('../aplicacao/gerenciador-mensagens');
 
 // =========================================================================
 // CONFIGURAÇÕES DO SERVIDOR
@@ -134,6 +135,39 @@ servidorWebSocket.on('connection', function connection(websocket, request) {
             
             // Envia o payload como JSON para o Electron
             websocket.send(JSON.stringify(payloadCompleto));
+
+            // Integração chatbot (roteamento automatizado provedor)
+            ;(async () => {
+                try {
+                    const resultado = await roteamentoAutomatizado('simulador', mensagem.numero, mensagem.texto);
+                    if (resultado.devResponder && websocket.readyState === WebSocket.OPEN) {
+                        const respostaPayload = {
+                            tipo: 'chatbot',
+                            id: `bot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                            originalId: payloadCompleto.id,
+                            numero: mensagem.numero,
+                            texto: resultado.resposta,
+                            intent: resultado.metadata?.intent || null,
+                            intentTipo: resultado.metadata?.tipo || null,
+                            escalar: resultado.escalar || false,
+                            timestamp: Date.now(),
+                            dataEnvio: new Date().toISOString()
+                        };
+                        // Delay pequeno para simular processamento
+                        setTimeout(() => {
+                            if (websocket.readyState === WebSocket.OPEN) {
+                                websocket.send(JSON.stringify(respostaPayload));
+                                console.log('🤖 [CHATBOT RESPOSTA]', respostaPayload.texto);
+                                if (respostaPayload.escalar) {
+                                    console.log('⬆️ [ESCALONAMENTO] Encaminhar para atendimento humano.');
+                                }
+                            }
+                        }, 400);
+                    }
+                } catch (e) {
+                    console.log('⚠️ [CHATBOT ERRO]', e.message);
+                }
+            })();
             
             indiceMensagem++;
             

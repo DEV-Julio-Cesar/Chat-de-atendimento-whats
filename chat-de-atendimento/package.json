@@ -6,8 +6,11 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --inspect",
+    "build:ts": "tsc",
+    "watch:ts": "tsc --watch",
+    "type-check": "tsc --noEmit",
     "verificar": "node verificar-estrutura.js",
-      "verificar:whatsapp": "node scripts/verificar-whatsapp.js",
+    "verificar:whatsapp": "node scripts/verificar-whatsapp.js",
     "teste": "node teste-completo.js",
     "teste:cadastro": "node tests/teste-cadastro.js",
     "teste:login": "node tests/teste-login.js",
@@ -28,23 +31,28 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "archiver": "^5.3.2",
     "axios": "^1.7.0",
     "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
     "electron": "^33.0.0",
+    "exceljs": "^4.4.0",
+    "express": "^4.19.2",
     "fs-extra": "^11.2.0",
+    "node-cron": "^3.0.3",
+    "pdfkit": "^0.15.0",
     "puppeteer": "^23.0.0",
     "qrcode": "^1.5.4",
     "whatsapp-web.js": "^1.25.0",
-    "ws": "^8.18.0",
-    "archiver": "^5.3.2",
-    "exceljs": "^4.4.0",
-    "express": "^4.19.2",
-    "cors": "^2.8.5",
-    "node-cron": "^3.0.3",
-    "pdfkit": "^0.15.0"
+    "ws": "^8.18.0"
   },
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   }
 }

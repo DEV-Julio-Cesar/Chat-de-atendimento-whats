@@ -18,6 +18,11 @@
   .chat-header { background: var(--panel); }
   .input-area { background: var(--panel); }
   </style>
+  
+  <!-- UX Components -->
+  <script src="./toast-notifications.js"></script>
+  <script src="./loading-states.js"></script>
+  <script src="./confirmation-modal.js"></script>
 </head>
 <body>
   <div class="container">
@@ -33,15 +38,27 @@
       <div class="chat-list" id="chatList">
         <div style="padding:20px;text-align:center;color:#667781;">Carregando...</div>
       </div>
+      <div class="quick-messages-toggle" onclick="toggleQuickMessages()" style="padding:8px 12px;cursor:pointer;border-top:1px solid #ccc;font-size:14px;background:var(--panel);">⚡ Mensagens Rápidas</div>
+      <div class="quick-messages-panel" id="quickPanel" style="display:none;max-height:220px;overflow:auto;background:var(--panel);border-top:1px solid #ccc;">
+        <div style="padding:12px;font-size:13px;color:var(--muted);">Carregando...</div>
+      </div>
     </div>
 
     <!-- Área de Conversa -->
     <div class="chat-area" id="chatArea">
       <div class="empty-state">Selecione uma conversa para começar</div>
     </div>
+    <div style="position:fixed;bottom:24px;right:24px;z-index:1000;">
+      <button id="btnTreinarIA" style="padding:12px 20px;background:#6366f1;color:#fff;border:none;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.15);font-weight:600;cursor:pointer;">🤖 Treinar IA Provedor</button>
+    </div>
   </div>
 
   <script>
+  // Inicializar Toast e Loading
+  const toast = new ToastNotification();
+  const loadingState = new LoadingState();
+  const confirmModal = new ConfirmationModal();
+  
   // Tema
   (async () => {
     const t = await window.electronAPI.getTheme();
@@ -133,13 +150,21 @@
 
     document.getElementById('btnAssumir').onclick = async () => {
       const r = await window.electronAPI.attend.claim({ username: currentUser, clientId: currentClientId, chatId: currentChatId });
-      alert(r.message || (r.success ? 'Atendimento assumido' : 'Falha ao assumir'));
+      if (r.success) {
+        toast.success(r.message || 'Atendimento assumido com sucesso');
+      } else {
+        toast.error(r.message || 'Falha ao assumir atendimento');
+      }
       const at2 = await window.electronAPI.attend.get({ clientId: currentClientId, chatId: currentChatId });
       document.getElementById('respNome').textContent = at2?.atendimento?.username || '—';
     };
     document.getElementById('btnLiberar').onclick = async () => {
       const r = await window.electronAPI.attend.release({ username: currentUser, clientId: currentClientId, chatId: currentChatId });
-      alert(r.message || (r.success ? 'Atendimento liberado' : 'Falha ao liberar'));
+      if (r.success) {
+        toast.success(r.message || 'Atendimento liberado com sucesso');
+      } else {
+        toast.error(r.message || 'Falha ao liberar atendimento');
+      }
       const at2 = await window.electronAPI.attend.get({ clientId: currentClientId, chatId: currentChatId });
       document.getElementById('respNome').textContent = at2?.atendimento?.username || '—';
     };
@@ -177,17 +202,78 @@
     const texto = input.value.trim();
     if (!texto || !currentChatId) return;
 
-    const res = await window.chatAPI.enviarMensagem(currentClientId, currentChatId, texto);
-    if (res.success) {
-      adicionarMensagem({ body: texto, timestamp: Date.now() }, true);
-      input.value = '';
-    } else {
-      alert('Erro ao enviar: ' + res.message);
+    // Slash command: /codigo => expandir mensagem rápida
+    if (texto.startsWith('/')) {
+      const codigo = texto.slice(1).trim();
+      if (codigo) {
+        const r = await window.chatAPI.obterMensagemRapida(codigo);
+        if (r.success && r.mensagem) {
+          input.value = r.mensagem.texto; // substitui pelo texto expandido
+          // registra uso
+          window.chatAPI.registrarUsoMensagemRapida(codigo);
+        } else {
+          toast.error('Atalho não encontrado');
+          return;
+        }
+      }
+    }
+
+    const btnEnviar = event?.target || document.querySelector('.input-area button');
+    if (btnEnviar) loadingState.button(btnEnviar, true);
+    
+    try {
+      const res = await window.chatAPI.enviarMensagem(currentClientId, currentChatId, texto);
+      if (res.success) {
+        adicionarMensagem({ body: texto, timestamp: Date.now() }, true);
+        input.value = '';
+        toast.success('Mensagem enviada');
+      } else {
+        toast.error('Erro ao enviar: ' + res.message);
+      }
+    } catch (error) {
+      toast.error('Erro ao enviar mensagem: ' + error.message);
+    } finally {
+      if (btnEnviar) loadingState.button(btnEnviar, false);
     }
   }
 
   function recarregarChats() {
     carregarChats();
+  }
+
+  // Quick Messages UI
+  async function carregarMensagensRapidas() {
+    const painel = document.getElementById('quickPanel');
+    const res = await window.chatAPI.listarMensagensRapidas();
+    if (!res.success) {
+      painel.innerHTML = '<div style="padding:12px;color:#f00;">Erro ao carregar</div>';
+      return;
+    }
+    if (res.mensagens.length === 0) {
+      painel.innerHTML = '<div style="padding:12px;color:var(--muted);">Nenhuma mensagem rápida</div>';
+      return;
+    }
+    painel.innerHTML = res.mensagens.map(m => `
+      <div class="qm-item" style="padding:8px 12px;border-bottom:1px solid #ccc;font-size:13px;cursor:pointer;" onclick="inserirMensagemRapida('${m.codigo.replace(/'/g, '')}')">
+        <strong>/${m.codigo}</strong><br/><span style="color:var(--muted);">${m.texto.substring(0,90)}${m.texto.length>90?'...':''}</span>
+      </div>
+    `).join('');
+  }
+
+  function toggleQuickMessages() {
+    const painel = document.getElementById('quickPanel');
+    if (painel.style.display === 'none') {
+      painel.style.display = 'block';
+      carregarMensagensRapidas();
+    } else {
+      painel.style.display = 'none';
+    }
+  }
+
+  function inserirMensagemRapida(codigo) {
+    const input = document.getElementById('messageInput');
+    input.value = '/' + codigo;
+    input.focus();
   }
 
   // Busca
@@ -198,6 +284,32 @@
     );
     renderizarChats(filtrados);
   });
+  // Integração Gemini: Treinar IA como agente de provedor
+  document.getElementById('btnTreinarIA').onclick = async () => {
+    loadingState.show('Treinando IA Gemini...');
+    try {
+      // Busca intents do provedor
+      const res = await fetch('../../dados/provedor-config.json');
+      const provedor = await res.json();
+      const prompt = `Você é um agente virtual de atendimento de provedor de internet. Responda sempre de forma clara, cordial e objetiva. Use as seguintes intenções e exemplos para orientar seu atendimento:\n\n` +
+        provedor.intents.map(i => `Intent: ${i.nome}\nPalavras-chave: ${i.palavras.join(', ')}\nResposta: ${i.resposta}${i.passosDiagnostico ? '\nPassos: ' + i.passosDiagnostico.join(' | ') : ''}`).join('\n\n');
+      const resposta = await window.iaAPI.perguntarGemini({ mensagem: prompt });
+      if (resposta.success) {
+        toast.success('IA treinada! Resposta de exemplo: ' + (resposta.resposta?.slice(0,120) || 'ok...'));
+      } else {
+        toast.error('Falha ao treinar IA: ' + resposta.message);
+      }
+    } catch (e) {
+      toast.error('Erro ao treinar IA: ' + (e.message || e));
+    } finally {
+      loadingState.hide();
+    }
+  };
+  </script>
+  
+  <script src="navigation-bar.js"></script>
+  <script>
+    initNavigationBar('Chat WhatsApp');
   </script>
 </body>
 </html>

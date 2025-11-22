@@ -30,6 +30,13 @@
     .progress-bar { width:100%; height:8px; background:#e5e7eb; border-radius:4px; overflow:hidden; margin-top:12px; }
     .progress-fill { height:100%; background:#10b981; transition: width .3s; }
   </style>
+  
+  <!-- UX Components -->
+  <script src="./toast-notifications.js"></script>
+  <script src="./loading-states.js"></script>
+  <script src="./confirmation-modal.js"></script>
+  <!-- Chart.js CDN para gráficos -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
   <header>
@@ -90,14 +97,48 @@
         Carregando estatísticas...
       </div>
     </div>
+
+    <div class="chart-container">
+      <div class="chart-title">Uso de Mensagens Rápidas (/atalhos)</div>
+      <div style="margin-bottom:12px;display:flex;gap:12px;flex-wrap:wrap;">
+        <button onclick="atualizarMetricasRapidas()" style="padding:8px 16px;background:#1f2937;color:#fff;border:none;border-radius:6px;cursor:pointer;">🔄 Atualizar Uso</button>
+        <button onclick="resetarMetricasRapidas()" style="padding:8px 16px;background:#ef4444;color:#fff;border:none;border-radius:6px;cursor:pointer;">🗑️ Resetar Uso</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;">
+        <div id="quickMetrics" style="overflow:auto;flex:2 1 400px;min-width:350px;">
+          <table style="width:100%;border-collapse:collapse;min-width:350px;">
+            <thead>
+              <tr style="background:#f3f4f6;text-align:left;">
+                <th style="padding:10px;border-bottom:1px solid #e5e7eb;">Código</th>
+                <th style="padding:10px;border-bottom:1px solid #e5e7eb;">Uso</th>
+                <th style="padding:10px;border-bottom:1px solid #e5e7eb;">% do Total</th>
+                <th style="padding:10px;border-bottom:1px solid #e5e7eb;">Último Uso</th>
+                <th style="padding:10px;border-bottom:1px solid #e5e7eb;">Barra</th>
+              </tr>
+            </thead>
+            <tbody id="quickMetricsBody">
+              <tr><td colspan="5" style="padding:12px;color:#6b7280;">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="flex:1 1 320px;min-width:320px;max-width:420px;">
+          <canvas id="top5QuickChart" width="400" height="320"></canvas>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
+    // Inicializar Toast e Loading
+    const toast = new ToastNotification();
+    const loadingState = new LoadingState();
+    const confirmModal = new ConfirmationModal();
+    
     async function atualizarMetricas() {
       const res = await window.dashboardAPI.obterMetricas();
       
       if (!res.success) {
-        alert('Erro ao carregar métricas: ' + res.message);
+        toast.error('Erro ao carregar métricas: ' + res.message);
         return;
       }
 
@@ -140,31 +181,138 @@
     }
 
     async function resetarMetricas() {
-      if (!confirm('Deseja realmente resetar todas as métricas? Esta ação não pode ser desfeita.')) {
-        return;
-      }
+      const confirmed = await confirmModal.danger({
+        title: 'Resetar Métricas',
+        message: 'Deseja realmente resetar todas as métricas? Esta ação não pode ser desfeita.',
+        confirmText: 'Sim, Resetar',
+        cancelText: 'Cancelar'
+      });
+      
+      if (!confirmed) return;
 
       const res = await window.dashboardAPI.resetarMetricas();
       
       if (res.success) {
-        alert('Métricas resetadas com sucesso!');
+        toast.success('Métricas resetadas com sucesso!');
         atualizarMetricas();
       } else {
-        alert('Erro ao resetar: ' + res.message);
+        toast.error('Erro ao resetar: ' + res.message);
       }
     }
 
     async function exportar(tipo) {
       const res = await window.dashboardAPI.exportar(tipo);
-      if (res.success) alert(`Arquivo gerado:\n${res.file}`);
-      else alert('Erro: ' + res.message);
+      if (res.success) {
+        toast.success(`Arquivo gerado: ${res.file}`);
+      } else {
+        toast.error('Erro: ' + res.message);
+      }
     }
+
+    let top5QuickChart = null;
+    async function atualizarMetricasRapidas() {
+      const res = await window.dashboardAPI.metricasMensagensRapidas();
+      const tbody = document.getElementById('quickMetricsBody');
+      if (!res || !res.usos) {
+        tbody.innerHTML = '<tr><td colspan="5" style="padding:12px;color:#f00;">Erro ao carregar métricas</td></tr>';
+        if (top5QuickChart) top5QuickChart.destroy();
+        return;
+      }
+      const entradas = Object.entries(res.usos);
+      if (entradas.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="padding:12px;color:#6b7280;">Nenhum uso registrado</td></tr>';
+        if (top5QuickChart) top5QuickChart.destroy();
+        return;
+      }
+      const total = entradas.reduce((acc, [_k, v]) => acc + v.count, 0) || 1;
+      entradas.sort((a,b)=> b[1].count - a[1].count);
+      tbody.innerHTML = entradas.map(([codigo, info]) => {
+        const pct = ((info.count / total)*100).toFixed(1);
+        const last = info.lastUsed ? new Date(info.lastUsed).toLocaleString('pt-BR') : '—';
+        return `<tr>
+          <td style="padding:8px;border-bottom:1px solid #e5e7eb;white-space:nowrap;">/${codigo}</td>
+          <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${info.count}</td>
+          <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${pct}%</td>
+          <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${last}</td>
+          <td style="padding:8px;border-bottom:1px solid #e5e7eb;">
+            <div style="background:#e5e7eb;height:8px;border-radius:4px;overflow:hidden;min-width:120px;">
+              <div style="width:${pct}%;background:#10b981;height:100%;"></div>
+            </div>
+          </td>
+        </tr>`;
+      }).join('');
+
+      // Top 5 chart
+      const top5 = entradas.slice(0, 5);
+      const labels = top5.map(([codigo]) => '/' + codigo);
+      const data = top5.map(([_codigo, info]) => info.count);
+      const bgColors = [
+        '#10b981', '#3b82f6', '#f59e42', '#ef4444', '#6366f1'
+      ];
+      const ctx = document.getElementById('top5QuickChart').getContext('2d');
+      if (top5QuickChart) top5QuickChart.destroy();
+      top5QuickChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Usos',
+            data,
+            backgroundColor: bgColors,
+            borderRadius: 8,
+            maxBarThickness: 48
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          plugins: {
+            legend: { display: false },
+            title: {
+              display: true,
+              text: 'Top 5 Atalhos Mais Usados',
+              font: { size: 16 }
+            }
+          },
+          scales: {
+            x: {
+              beginAtZero: true,
+              ticks: { precision:0 }
+            }
+          }
+        }
+      });
+    }
+
+    async function resetarMetricasRapidas() {
+      const confirmed = await confirmModal.danger({
+        title: 'Resetar Uso de Atalhos',
+        message: 'Tem certeza que deseja limpar todas as métricas de /atalhos?',
+        confirmText: 'Resetar',
+        cancelText: 'Cancelar'
+      });
+      if (!confirmed) return;
+      const res = await window.dashboardAPI.resetMetricasMensagensRapidas();
+      if (res.success) {
+        toast.success('Uso de mensagens rápidas resetado.');
+        atualizarMetricasRapidas();
+      } else {
+        toast.error('Falha ao resetar métricas rápidas');
+      }
+    }
+
+    // Carrega métricas rápidas também
+    atualizarMetricasRapidas();
 
     // Atualiza a cada 30 segundos
     setInterval(atualizarMetricas, 30000);
     
     // Carrega inicial
     atualizarMetricas();
+  </script>
+  
+  <script src="navigation-bar.js"></script>
+  <script>
+    initNavigationBar('📊 Dashboard - Métricas');
   </script>
 </body>
 </html>
