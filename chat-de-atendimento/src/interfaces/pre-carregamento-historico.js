@@ -1,4 +1,4 @@
-// preload-history.js
+// pre-carregamento-historico.js
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {

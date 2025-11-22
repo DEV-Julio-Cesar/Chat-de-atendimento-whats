@@ -1,4 +1,4 @@
-// src/interfaces/loading-states.js
+// src/interfaces/estados-carregamento.js
 // Componente de loading states reutilizável
 
 class LoadingState {

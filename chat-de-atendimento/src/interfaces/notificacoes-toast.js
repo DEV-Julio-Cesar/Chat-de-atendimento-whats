@@ -1,4 +1,4 @@
-// src/interfaces/toast-notifications.js
+// src/interfaces/notificacoes-toast.js
 // Sistema de notificações toast para feedback visual
 
 class ToastNotification {

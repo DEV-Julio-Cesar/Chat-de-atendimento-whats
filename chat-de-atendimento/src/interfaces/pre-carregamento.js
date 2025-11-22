@@ -1,4 +1,4 @@
-// preload.js - Script de Pré-carregamento (Ponte Segura IPC)
+// pre-carregamento.js - Script de Pré-carregamento (Ponte Segura IPC)
 const { contextBridge, ipcRenderer } = require('electron');
 
 // 🚨 CORREÇÃO: Todas as funções estão unificadas em UMA ÚNICA EXPOSIÇÃO.

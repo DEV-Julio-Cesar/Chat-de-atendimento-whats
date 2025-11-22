@@ -1,4 +1,4 @@
-// preload-cadastro.js
+// pre-carregamento-cadastro.js
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('cadastroAPI', {

@@ -1,4 +1,4 @@
-// preload-login.js
+// pre-carregamento-login.js
 const { contextBridge, ipcRenderer } = require('electron');
 
 console.log('[PRELOAD-LOGIN] Iniciando...');

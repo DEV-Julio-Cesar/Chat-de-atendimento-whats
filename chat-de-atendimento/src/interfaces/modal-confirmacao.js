@@ -1,4 +1,4 @@
-// src/interfaces/confirmation-modal.js
+// src/interfaces/modal-confirmacao.js
 // Modal de confirmação para ações críticas
 
 class ConfirmationModal {

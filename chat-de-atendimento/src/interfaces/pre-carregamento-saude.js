@@ -1,4 +1,4 @@
-// preload-health.js
+// pre-carregamento-saude.js
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('healthAPI', {
